@@ -1,0 +1,14 @@
+%YAML 1.0
+sensors:
+  imu:
+    topic: /sensors/bno08x/raw
+    sample_rate: 300
+    bus: 1
+
+  camera:
+    topic: /sensors/imx/image_raw
+    sample_rate: 30 # is also framerate
+    input_stream: csi://0
+    resolution:
+      width: 640
+      height: 480

@@ -1,0 +1,1 @@
+docker run --rm --name foxglove-bridge --privileged --network="host" foxglove/bridge:ros2
