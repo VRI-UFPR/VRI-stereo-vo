@@ -1,0 +1,4 @@
+sensor_msgs/Image current_image
+sensor_msgs/Image previous_image
+---
+vision_msgs/Detection2DArray matches

@@ -29,3 +29,7 @@ stereo_vo:
   left_cam:
     topic: /sensors/imx_left/image_raw
     intrinsics: /workspace/config/imx_left_intrinsics.yaml
+
+  depth_estimator_service: /stereo_vo/depth_estimation
+  feature_extractor_service: /stereo_vo/feature_extraction
+  feature_matcher_service: /stereo_vo/feature_matching
