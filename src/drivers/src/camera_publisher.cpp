@@ -21,76 +21,117 @@ public:
     {
         RCLCPP_INFO(this->get_logger(), "Starting camera publisher...");
 
-        // parse parameters
-        std::string camera_topic, input_stream;
-        int sample_rate;
-        std::vector<int> resolution;
-        cv::FileStorage fs;
-        fs.open("/workspace/config/config.yaml", cv::FileStorage::READ);
-        fs["sensors"]["camera"]["topic"] >> camera_topic;
-        fs["sensors"]["camera"]["sample_rate"] >> sample_rate;
-        fs["sensors"]["camera"]["input_stream"] >> input_stream;
-        fs["sensors"]["camera"]["resolution"] >> resolution;
-        fs.release();
-
-        videoOptions video_options;
-        video_options.width = resolution[0];
-        video_options.height = resolution[1];
-        video_options.frameRate = static_cast<float>(sample_rate);
-        // In our current setup, the camera is upside down.
-        video_options.flipMethod = videoOptions::FlipMethod::FLIP_ROTATE_180;
-        video_options.latency = 1;
-
-        this->cap = videoSource::Create(input_stream.c_str(), video_options);
-
-        if (this->cap == nullptr)
-        {
-            RCLCPP_ERROR(this->get_logger(), "Could not open camera.");
-        }
-
+        this->readConfig();
+        this->initCaptures();
+        this->initPublishers();
+        
+        // Used to convert to ROS image message
         this->image_cvt = new imageConverter();
 
         RCLCPP_INFO(this->get_logger(), "Camera publisher has been started.");
-
-        // initialize publisher
-        this->publisher = this->create_publisher<sensor_msgs::msg::Image>(camera_topic, 10);
-        this->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / sample_rate), std::bind(&ImxPublisher::publish, this));
     }
 
 private:
 
-    void publish(void)
+    void readConfig(void)
+    {
+        // Parse parameters
+        cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
+        cv::FileNode cam_config = fs["sensors"]["cameras"];
+        this->cameras.resize(cam_config.size());
+
+        for (int i = 0; i < cam_config.size(); i++)
+        {
+            cam_config[i]["topic"] >> this->cameras[i].topic;
+            cam_config[i]["input_stream"] >> this->cameras[i].input_stream;
+            cam_config[i]["sample_rate"] >> this->cameras[i].sample_rate;
+            cam_config[i]["resolution"] >> this->cameras[i].resolution;
+        }
+        fs.release();
+    }
+
+    void initCapture(void)
+    {
+        // Initialize jetson utils camera capture
+        for (int i = 0; i < this->cameras.size(); i++)
+        {
+            Camera* camera = &this->cameras[i];
+
+            videoOptions video_options;
+            video_options.width = camera->resolution[0];
+            video_options.height = camera->resolution[1];
+            video_options.frameRate = static_cast<float>(camera->sample_rate);
+            // In our current setup, the camera is upside down.
+            video_options.flipMethod = videoOptions::FlipMethod::FLIP_ROTATE_180;
+            video_options.latency = 1;
+
+            camera->cap = videoSource::Create(camera->input_stream.c_str(), video_options);
+
+            if (camera->cap == nullptr)
+            {
+                RCLCPP_ERROR(this->get_logger(), "Could not open camera %d.", i);
+            }
+        }
+    }
+
+    void initPublishers(void)
+    {
+        for (int i = 0; i < this->cameras.size(); i++)
+        {
+            Camera* camera = &this->cameras[i];
+
+            camera->publisher = this->create_publisher<sensor_msgs::msg::Image>(camera->topic, 10);
+
+            // Use a lambda function to bind the camera index to the callback function
+            std::function<void()> callback = std::bind(&ImxPublisher::publish, this, std::placeholders::_1, i);
+            camera->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / camera->sample_rate), std::bind(callback, this));
+        }
+    }
+
+    void publish(int idx)
     {
         sensor_msgs::msg::Image msg;
         imageConverter::PixelType* nextFrame = NULL;
 
-        if(!this->cap->Capture(&nextFrame, 1000))
+        Camera* camera = &this->cameras[idx];
+
+        // Retrieve the next frame from the camera
+        if(!camera->cap->Capture(&nextFrame, 1000))
         {
             RCLCPP_ERROR(this->get_logger(), "Failed to capture camera frame.");
             return;
         }
 
-
-
-        if(!this->image_cvt->Resize(this->cap->GetWidth(), this->cap->GetHeight(), imageConverter::ROSOutputFormat))
+        // Resize and convert to a ROS message
+        if(!this->image_cvt->Resize(camera->cap->GetWidth(), camera->cap->GetHeight(), imageConverter::ROSOutputFormat))
         {
             RCLCPP_ERROR(this->get_logger(), "Failed to resize camera image converter.");
             return;
         }
-
         this->image_cvt->Convert(msg, imageConverter::ROSOutputFormat, nextFrame);
 
+        msg.header.stamp = this->now();
+        camera->publisher->publish(msg);
 
         RCLCPP_INFO_ONCE(this->get_logger(), "Publishing camera frames...");
-
-        msg.header.stamp = this->now();
-        publisher->publish(msg);
     }
+   
+    struct Camera
+    {
+        std::string topic;
+        std::string input_stream;
+        int sample_rate;
+        std::vector<int> resolution;
+        videoSource *cap;
 
-    videoSource* cap; 
+        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher;
+        rclcpp::TimerBase::SharedPtr timer;
+
+        Camera() : topic(""), input_stream(""), sample_rate(0), resolution({0, 0}), cap(nullptr) {}
+    };
+
+    std::vector<ImxPublisher::Camera> cameras;
     imageConverter* image_cvt;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher;
-    rclcpp::TimerBase::SharedPtr timer;
 };
 
 int main(int argc, char *argv[])
