@@ -40,7 +40,7 @@ private:
         cv::FileNode cam_config = fs["sensors"]["cameras"];
         this->cameras.resize(cam_config.size());
 
-        for (int i = 0; i < cam_config.size(); i++)
+        for (size_t i = 0; i < cam_config.size(); i++)
         {
             cam_config[i]["topic"] >> this->cameras[i].topic;
             cam_config[i]["input_stream"] >> this->cameras[i].input_stream;
@@ -50,10 +50,10 @@ private:
         fs.release();
     }
 
-    void initCapture(void)
+    void initCaptures(void)
     {
         // Initialize jetson utils camera capture
-        for (int i = 0; i < this->cameras.size(); i++)
+        for (size_t i = 0; i < this->cameras.size(); i++)
         {
             Camera* camera = &this->cameras[i];
 
@@ -76,19 +76,19 @@ private:
 
     void initPublishers(void)
     {
-        for (int i = 0; i < this->cameras.size(); i++)
+        for (size_t i = 0; i < this->cameras.size(); i++)
         {
             Camera* camera = &this->cameras[i];
 
             camera->publisher = this->create_publisher<sensor_msgs::msg::Image>(camera->topic, 10);
 
-            // Use a lambda function to bind the camera index to the callback function
-            std::function<void()> callback = std::bind(&ImxPublisher::publish, this, std::placeholders::_1, i);
-            camera->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / camera->sample_rate), std::bind(callback, this));
+            // Use std::bind to pass the camera index to the callback function
+            std::function<void()> callback = std::bind(&ImxPublisher::publish, this, i);
+            camera->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / camera->sample_rate), callback);
         }
     }
 
-    void publish(int idx)
+    void publish(size_t idx)
     {
         sensor_msgs::msg::Image msg;
         imageConverter::PixelType* nextFrame = NULL;
@@ -130,7 +130,7 @@ private:
         Camera() : topic(""), input_stream(""), sample_rate(0), resolution({0, 0}), cap(nullptr) {}
     };
 
-    std::vector<ImxPublisher::Camera> cameras;
+    std::vector<Camera> cameras;
     imageConverter* image_cvt;
 };
 
