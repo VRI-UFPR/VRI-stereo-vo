@@ -20,3 +20,12 @@ sensors:
       resolution:
         width: 640
         height: 480
+
+stereo_vo:
+  rigth_cam:
+    topic: /sensors/imx_right/image_raw
+    intrinsics: /workspace/config/imx_right_intrinsics.yaml
+
+  left_cam:
+    topic: /sensors/imx_left/image_raw
+    intrinsics: /workspace/config/imx_left_intrinsics.yaml
