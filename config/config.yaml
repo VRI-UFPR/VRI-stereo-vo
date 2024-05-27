@@ -7,19 +7,19 @@ sensors:
     bus: 1
 
   cameras:
-    - topic: /sensors/imx_right/image_raw
-      sample_rate: 30
-      input_stream: csi://0
-      resolution:
-        width: 640
-        height: 480
+    topic: /sensors/imx/image_stereo
+    devices:
+      - sample_rate: 30
+        input_stream: csi://0
+        resolution:
+          width: 640
+          height: 480
 
-    - topic: /sensors/imx_left/image_raw
-      sample_rate: 30
-      input_stream: csi://1
-      resolution:
-        width: 640
-        height: 480
+      - sample_rate: 30
+        input_stream: csi://1
+        resolution:
+          width: 640
+          height: 480
 
 stereo_vo:
   rigth_cam:

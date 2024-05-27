@@ -39,7 +39,7 @@ public:
         fs.release();
 
         // Load camera intrinsics
-        // TODO: Load camera intrinsics from file
+        
 
         // Initialize subscribers and time synchronizer
         this->lcam_sub.subscribe(this, lcam_topic);
