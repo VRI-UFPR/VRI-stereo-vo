@@ -23,7 +23,6 @@ public:
 
         this->readConfig();
         this->initCaptures();
-        this->initPublishers();
         
         // Used to convert to ROS image message
         this->image_cvt = new imageConverter();
@@ -55,6 +54,11 @@ private:
             cam_config[i]["resolution"] >> this->cameras[i].resolution;
         }
         fs.release();
+
+        for (size_t i = 0; i < this->cameras.size(); i++)
+        {
+            RCLCPP_INFO(this->get_logger(), "Camera %d: %s", i, this->cameras[i].toString().c_str());
+        }
     }
 
     void initCaptures(void)
@@ -93,14 +97,14 @@ private:
             // Retrieve the next frame from the camera
             if(!camera->cap->Capture(&nextFrame, 1000))
             {
-                RCLCPP_ERROR(this->get_logger(), "Failed to capture camera frame.");
+                RCLCPP_ERROR(this->get_logger(), "Failed to capture camera %d frame.", idx);
                 return;
             }
 
             // Resize and convert to a ROS message
             if(!this->image_cvt->Resize(camera->cap->GetWidth(), camera->cap->GetHeight(), imageConverter::ROSOutputFormat))
             {
-                RCLCPP_ERROR(this->get_logger(), "Failed to resize camera image converter.");
+                RCLCPP_ERROR(this->get_logger(), "Failed to resize camera %d image converter.", idx);
                 return;
             }
 
@@ -114,7 +118,7 @@ private:
         }
 
         msg.header.stamp = this->now();
-        this->publisher.publish(msg);
+        this->publisher->publish(msg);
 
         RCLCPP_INFO_ONCE(this->get_logger(), "Publishing camera frames...");
     }
@@ -127,6 +131,10 @@ private:
         videoSource *cap;
 
         Camera() : input_stream(""), sample_rate(0), resolution({0, 0}), cap(nullptr) {}
+        std::string toString(void) 
+        {
+            return "Camera: " + input_stream + " " + std::to_string(sample_rate) + " " + std::to_string(resolution[0]) + "x" + std::to_string(resolution[1]);
+        }
     };
 
     rclcpp::Publisher<stereo_vo::msg::StereoImage>::SharedPtr publisher;

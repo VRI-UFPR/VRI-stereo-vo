@@ -11,15 +11,25 @@ find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+
 # Include Cpp "include" directory
 include_directories(include)
 
 # Build services
+# find_package(rosidl_default_generators REQUIRED)
+# rosidl_generate_interfaces(${PROJECT_NAME}
+#   "srv/DepthEstimator.srv"
+#   "srv/FeatureExtractor.srv"
+#   "srv/FeatureMatcher.srv"
+# )
+
+# Build messages
 find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "srv/DepthEstimator.srv",
-  "srv/FeatureExtractor.srv",
-  "srv/FeatureMatcher.srv",
- )
+  "msg/StereoImage.msg"
+  DEPENDENCIES sensor_msgs std_msgs
+)
 
 ament_package()

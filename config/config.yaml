@@ -10,13 +10,13 @@ sensors:
     topic: /sensors/imx/image_stereo
     devices:
       - sample_rate: 30
-        input_stream: csi://0
+        input_stream: "csi://0"
         resolution:
           width: 640
           height: 480
 
       - sample_rate: 30
-        input_stream: csi://1
+        input_stream: "csi://1"
         resolution:
           width: 640
           height: 480
