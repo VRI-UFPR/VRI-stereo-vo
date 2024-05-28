@@ -1,16 +1,15 @@
-#include "feature_matcher.hpp"
+#include <string>
+#include <chrono>
 
-#include "rclcpp.hpp"
+#include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
 
 #include "vio_msgs/srv/depth_estimator.hpp"
 #include "vio_msgs/srv/feature_extractor.hpp"
 #include "vio_msgs/srv/feature_matcher.hpp"
 
-#include <string>
-#include <chrono>
-
 #include <opencv2/opencv.hpp>
+#include <cv_bridge/cv_bridge.h>
 #include <eigen3/Eigen/Core>
 
 class StereoVONode : public rclcpp::Node
@@ -39,15 +38,30 @@ public:
         this->loadCameraIntrinsics(rcam_intrinsics_file, this->rcam_intrinsics);
 
         // Initialize subscribers and time synchronizer
-        this->stereo_sub = this->create_subscription<vio_msgs::msg::StereoImage>(stereo_img_topic, 10, std::bind(&StereoVONode::stereo_callback, this, std::placeholders::_1));
+        this->stereo_img_sub = this->create_subscription<vio_msgs::msg::StereoImage>(stereo_img_topic, 10, std::bind(&StereoVONode::stereo_callback, this, std::placeholders::_1));
 
         // Intialize clients
-        this->depth_estimator_client = this->create_client<stereo_vo::srv::DepthEstimator>(depth_estimator_service);
-        this->feature_extractor_client = this->create_client<stereo_vo::srv::FeatureExtractor>(feature_extractor_service);
-        this->feature_matcher_client = this->create_client<stereo_vo::srv::FeatureMatcher>(feature_matcher_service);
+        this->depth_estimator_client = this->create_client<vio_msgs::srv::DepthEstimator>(depth_estimator_service);
+        this->feature_extractor_client = this->create_client<vio_msgs::srv::FeatureExtractor>(feature_extractor_service);
+        this->feature_matcher_client = this->create_client<vio_msgs::srv::FeatureMatcher>(feature_matcher_service);
     }
 
 private:
+    
+    // Subscriber
+    rclcpp::Subscription<vio_msgs::msg::StereoImage>::SharedPtr stereo_img_sub;
+
+    // Clients
+    rclcpp::Client<vio_msgs::srv::DepthEstimator>::SharedPtr depth_estimator_client;
+    rclcpp::Client<vio_msgs::srv::FeatureExtractor>::SharedPtr feature_extractor_client;
+    rclcpp::Client<vio_msgs::srv::FeatureMatcher>::SharedPtr feature_matcher_client;
+
+    // Camera intrinsics
+    struct CameraIntrinsics
+    {
+        cv::Mat camera_matrix;
+        cv::Mat dist_coeffs;
+    } lcam_intrinsics, rcam_intrinsics; 
 
     void loadCameraIntrinsics(const std::string &intrinsics_file, CameraIntrinsics &intrinsics)
     {
@@ -68,8 +82,9 @@ private:
         }
     }
 
-    cv::Mat undistortImage(const cv::Mat &img, const CameraIntrinsics &intrinsics)
+    cv::Mat undistortImage(const sensor_msgs::msg::Image msg, const CameraIntrinsics &intrinsics)
     {
+        cv::Mat img = cv_bridge::toCvShare(msg, "bgr8")->image;
         cv::Mat undistorted_img;
         cv::undistort(img, undistorted_img, intrinsics.camera_matrix, intrinsics.dist_coeffs);
         return undistorted_img;
@@ -81,12 +96,12 @@ private:
 
         vio_msgs::msg::StereoImage undistorted_stereo_img;
         // Undistort image and create stereo image message
-        undistorted_stereo_img.left_image = this->undistortImage(cv_bridge::toCvShare(stereo_msg->left_image)->image, this->lcam_intrinsics);
-        undistorted_stereo_img.right_image = this->undistortImage(cv_bridge::toCvShare(stereo_msg->right_image)->image, this->rcam_intrinsics);
+        undistorted_stereo_img.left_image = cv_bridge::CvImage(stereo_msg->left_image.header, "bgr8", this->undistortImage(stereo_msg->left_image, this->lcam_intrinsics)).toImageMsg();
+        undistorted_stereo_img.right_image = cv_bridge::CvImage(stereo_msg->right_image.header, "bgr8", this->undistortImage(stereo_msg->right_image, this->rcam_intrinsics)).toImageMsg();
 
         // Send depth estimation request
-        auto depth_estimator_request = std::make_shared<stereo_vo::srv::DepthEstimator::Request>();
-        depth_estimator_request->streo_image = *stereo_msg;
+        auto depth_estimator_request = std::make_shared<vio_msgs::srv::DepthEstimator::Request>();
+        depth_estimator_request->stereo_image = *stereo_msg;
         waitForService(this->depth_estimator_client);
 
         auto depth_estimator_result = this->depth_estimator_client->async_send_request(depth_estimator_request);
@@ -102,22 +117,7 @@ private:
         {
             RCLCPP_ERROR(this->get_logger(), "Failed to get depth estimation result.");
         }
-    }
-    
-    // Subscriber
-    rclcpp::Subscription<vio_msgs::msg::StereoImage>::SharedPtr stereo_img_sub;
-
-    // Clients
-    rclcpp::Client<stereo_vo::srv::DepthEstimator>::SharedPtr depth_estimator_client;
-    rclcpp::Client<stereo_vo::srv::FeatureExtractor>::SharedPtr feature_extractor_client;
-    rclcpp::Client<stereo_vo::srv::FeatureMatcher>::SharedPtr feature_matcher_client;
-
-    // Camera intrinsics
-    struct CameraIntrinsics
-    {
-        cv::Mat camera_matrix;
-        cv::Mat dist_coeffs;
-    } lcam_intrinsics, rcam_intrinsics;    
+    }   
 };
 
 int main(int argc, char **argv)
