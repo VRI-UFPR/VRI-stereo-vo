@@ -3,12 +3,9 @@
 #include "rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
 
-#include "message_filters/subscriber.h"
-#include "message_filters/sync_policies/approximate_time.h"
-
-#include "stereo_vo/srv/depth_estimator.hpp"
-#include "stereo_vo/srv/feature_extractor.hpp"
-#include "stereo_vo/srv/feature_matcher.hpp"
+#include "vio_msgs/srv/depth_estimator.hpp"
+#include "vio_msgs/srv/feature_extractor.hpp"
+#include "vio_msgs/srv/feature_matcher.hpp"
 
 #include <string>
 #include <chrono>
@@ -24,29 +21,25 @@ public:
         RCLCPP_INFO(this->get_logger(), "Starting stereo visual odometry...");
 
         // Parse config
-        std::string rcam_topic, lcam_topic;
+        std::string stereo_img_topic;
         std::string rcam_intrinsics_file, lcam_intrinsics_file;
         std::string depth_estimator_service, feature_extractor_service, feature_matcher_service;
         cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
         cv::FileNode vo_config = fs["stereo_vo"];
-        vo_config["left_cam"]["topic"] >> lcam_topic;
-        vo_config["right_cam"]["topic"] >> rcam_topic;
-        vo_config["left_cam"]["intrinsics_file"] >> lcam_intrinsics_file;
-        vo_config["right_cam"]["intrinsics_file"] >> rcam_intrinsics_file;
+        vo_config["stereo_img_topic"] >> stereo_img_topic;
+        vo_config["left_cam_intrinsics"] >> lcam_intrinsics_file;
+        vo_config["right_cam_intrinsics"] >> rcam_intrinsics_file;
         vo_config["depth_estimator_service"] >> depth_estimator_service;
         vo_config["feature_extractor_service"] >> feature_extractor_service;
         vo_config["feature_matcher_service"] >> feature_matcher_service;
         fs.release();
 
         // Load camera intrinsics
-        
+        this->loadCameraIntrinsics(lcam_intrinsics_file, this->lcam_intrinsics);
+        this->loadCameraIntrinsics(rcam_intrinsics_file, this->rcam_intrinsics);
 
         // Initialize subscribers and time synchronizer
-        this->lcam_sub.subscribe(this, lcam_topic);
-        this->rcam_sub.subscribe(this, rcam_topic);
-        this->cam_sync = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(10), lcam_sub, rcam_sub);
-        this->cam_sync->setMaxIntervalDuration(rclcpp::Duration(0.01, 0));
-        this->cam_sync->registerCallback(std::bind(&StereoVONode::cam_callback, this, std::placeholders::_1, std::placeholders::_2));
+        this->stereo_sub = this->create_subscription<vio_msgs::msg::StereoImage>(stereo_img_topic, 10, std::bind(&StereoVONode::stereo_callback, this, std::placeholders::_1));
 
         // Intialize clients
         this->depth_estimator_client = this->create_client<stereo_vo::srv::DepthEstimator>(depth_estimator_service);
@@ -55,6 +48,14 @@ public:
     }
 
 private:
+
+    void loadCameraIntrinsics(const std::string &intrinsics_file, CameraIntrinsics &intrinsics)
+    {
+        cv::FileStorage fs(intrinsics_file, cv::FileStorage::READ);
+        fs["K"] >> intrinsics.camera_matrix;
+        fs["D"] >> intrinsics.dist_coeffs;
+        fs.release();
+    }
 
     void waitForService(rclcpp::ClientBase::SharedPtr client)
     {
@@ -67,32 +68,56 @@ private:
         }
     }
 
-    void cam_callback(const sensor_msgs::msg::Image::SharedPtr lcam_msg, const sensor_msgs::msg::Image::SharedPtr rcam_msg)
+    cv::Mat undistortImage(const cv::Mat &img, const CameraIntrinsics &intrinsics)
     {
+        cv::Mat undistorted_img;
+        cv::undistort(img, undistorted_img, intrinsics.camera_matrix, intrinsics.dist_coeffs);
+        return undistorted_img;
+    }
+
+    void stereo_callback(const vio_msgs::msg::StereoImage::SharedPtr stereo_msg)
+    {
+        RCLCPP_INFO(this->get_logger(), "Received stereo image message. Size: %dx%d", stereo_msg->left_image.width, stereo_msg->left_image.height);
+
+        vio_msgs::msg::StereoImage undistorted_stereo_img;
+        // Undistort image and create stereo image message
+        undistorted_stereo_img.left_image = this->undistortImage(cv_bridge::toCvShare(stereo_msg->left_image)->image, this->lcam_intrinsics);
+        undistorted_stereo_img.right_image = this->undistortImage(cv_bridge::toCvShare(stereo_msg->right_image)->image, this->rcam_intrinsics);
+
+        // Send depth estimation request
         auto depth_estimator_request = std::make_shared<stereo_vo::srv::DepthEstimator::Request>();
-        depth_estimator_request->left_img = *lcam_msg;
-        depth_estimator_request->right_img = *rcam_msg;
+        depth_estimator_request->streo_image = *stereo_msg;
         waitForService(this->depth_estimator_client);
 
         auto depth_estimator_result = this->depth_estimator_client->async_send_request(depth_estimator_request);
+        RCLCPP_INFO(this->get_logger(), "Depth estimation request sent.");
 
-        auto feature_extractor_request = std::make_shared<stereo_vo::srv::FeatureExtractor::Request>();
-        feature_extractor_request->image = *lcam_msg;
-        waitForService(this->feature_extractor_client);
-
-        auto feature_extractor_result = this->feature_extractor_client->async_send_request(feature_extractor_request);
+        // Wait for depth estimation result
+        if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), depth_estimator_result) == rclcpp::executor::FutureReturnCode::SUCCESS)
+        {
+            auto depth_map = depth_estimator_result.get()->depth_map;
+            RCLCPP_INFO(this->get_logger(), "Depth estimation completed. Size: %dx%d", depth_map.width, depth_map.height);
+        }
+        else
+        {
+            RCLCPP_ERROR(this->get_logger(), "Failed to get depth estimation result.");
+        }
     }
     
-    // Subscribers and time synchronizer
-    message_filters::Subscriber<sensor_msgs::msg::Image> lcam_sub;
-    message_filters::Subscriber<sensor_msgs::msg::Image> rcam_sub;
-    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
-    std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> cam_sync;
+    // Subscriber
+    rclcpp::Subscription<vio_msgs::msg::StereoImage>::SharedPtr stereo_img_sub;
 
     // Clients
     rclcpp::Client<stereo_vo::srv::DepthEstimator>::SharedPtr depth_estimator_client;
     rclcpp::Client<stereo_vo::srv::FeatureExtractor>::SharedPtr feature_extractor_client;
     rclcpp::Client<stereo_vo::srv::FeatureMatcher>::SharedPtr feature_matcher_client;
+
+    // Camera intrinsics
+    struct CameraIntrinsics
+    {
+        cv::Mat camera_matrix;
+        cv::Mat dist_coeffs;
+    } lcam_intrinsics, rcam_intrinsics;    
 };
 
 int main(int argc, char **argv)

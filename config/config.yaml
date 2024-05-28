@@ -8,7 +8,7 @@ sensors:
 
   cameras:
     topic: "/sensors/imx/image_stereo"
-    publish_visualization_msgs: 1
+    publish_visualization_msgs: 0
     visualization_msgs_topic: "/sensors/imx/viz"
     devices:
       - sample_rate: 30
@@ -24,13 +24,9 @@ sensors:
           height: 480
 
 stereo_vo:
-  rigth_cam:
-    topic: "/sensors/imx_right/image_raw"
-    intrinsics: "/workspace/config/imx_right_intrinsics.yaml"
-
-  left_cam:
-    topic: "/sensors/imx_left/image_raw"
-    intrinsics: "/workspace/config/imx_left_intrinsics.yaml"
+  stereo_image_topic: "/sensors/imx/image_stereo"
+  right_cam_intrinsics: "/workspace/config/imx_right_intrinsics.yaml"
+  left_cam_intrinsics: "/workspace/config/imx_left_intrinsics.yaml"
 
   depth_estimator_service: "/stereo_vo/depth_estimation"
   feature_extractor_service: "/stereo_vo/feature_extraction"

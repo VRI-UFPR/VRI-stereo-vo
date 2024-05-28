@@ -1,6 +1,6 @@
 #include "rclcpp/rclcpp.hpp"
 
-#include "stereo_vo/srv/depth_estimator.hpp"
+#include "vio_msgs/srv/depth_estimator.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/header.hpp"
 
@@ -37,10 +37,10 @@ private:
     {
         RCLCPP_INFO_STREAM(this->get_logger(), 
             "Received depth estimation request. Size: " 
-            << request->left_img.width << "x" << request->left_img.height << ", " 
-            << request->right_img.width << "x" << request->right_img.height);
+            << request->stereo_image.left_image.width << "x" << request->stereo_image.left_image.height << ", " 
+            << request->stereo_image.right_image.width << "x" << request->stereo_image.right_image.height);
 
-        cv::Size img_size(request->left_img.width, request->left_img.height);
+        cv::Size img_size(request->stereo_image.left_image.width, request->stereo_image.left_image.height);
         cv::Mat depth_map = cv::Mat::zeros(img_size, CV_32F);
 
         // TODO: Implement depth estimation
