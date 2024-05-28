@@ -2,12 +2,14 @@
 
 sensors:
   imu:
-    topic: /sensors/bno08x/raw
+    topic: "/sensors/bno08x/raw"
     sample_rate: 300
     bus: 1
 
   cameras:
-    topic: /sensors/imx/image_stereo
+    topic: "/sensors/imx/image_stereo"
+    publish_visualization_msgs: 1
+    visualization_msgs_topic: "/sensors/imx/viz"
     devices:
       - sample_rate: 30
         input_stream: "csi://0"
@@ -23,13 +25,13 @@ sensors:
 
 stereo_vo:
   rigth_cam:
-    topic: /sensors/imx_right/image_raw
-    intrinsics: /workspace/config/imx_right_intrinsics.yaml
+    topic: "/sensors/imx_right/image_raw"
+    intrinsics: "/workspace/config/imx_right_intrinsics.yaml"
 
   left_cam:
-    topic: /sensors/imx_left/image_raw
-    intrinsics: /workspace/config/imx_left_intrinsics.yaml
+    topic: "/sensors/imx_left/image_raw"
+    intrinsics: "/workspace/config/imx_left_intrinsics.yaml"
 
-  depth_estimator_service: /stereo_vo/depth_estimation
-  feature_extractor_service: /stereo_vo/feature_extraction
-  feature_matcher_service: /stereo_vo/feature_matching
+  depth_estimator_service: "/stereo_vo/depth_estimation"
+  feature_extractor_service: "/stereo_vo/feature_extraction"
+  feature_matcher_service: "/stereo_vo/feature_matching"

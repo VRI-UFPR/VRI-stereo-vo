@@ -17,7 +17,7 @@ find_package(rclpy REQUIRED)
 
 find_package(sensor_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
-find_package(stereo_vo REQUIRED)
+find_package(vio_msgs REQUIRED)
 
 # Include Cpp "include" directory
 include_directories(include)
@@ -31,11 +31,12 @@ find_package( OpenCV REQUIRED )
 include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 find_package(jetson-utils REQUIRED)
+set(JetsonUtils_LIBS "/usr/local/lib/libjetson-utils.so")
 
 # camera_publisher
 add_executable(camera_publisher src/camera_publisher.cpp src/image_converter.cpp src/ros_compat.cpp) 
-ament_target_dependencies(camera_publisher rclcpp sensor_msgs stereo_vo vision_msgs jetson-utils OpenCV CUDA)
-target_link_libraries( camera_publisher ${OpenCV_LIBS} "/usr/local/lib/libjetson-utils.so")
+ament_target_dependencies(camera_publisher rclcpp sensor_msgs vio_msgs vision_msgs jetson-utils OpenCV CUDA)
+target_link_libraries( camera_publisher ${OpenCV_LIBS} ${JetsonUtils_LIBS})
 install(TARGETS
   camera_publisher
   DESTINATION lib/${PROJECT_NAME})

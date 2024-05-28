@@ -12,7 +12,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 
-#include "stereo_vo/msg/stereo_image.hpp"
+#include "vio_msgs/msg/stereo_image.hpp"
+#include "sensor_msgs/msg/image.hpp"
 
 class ImxPublisher : public rclcpp::Node
 {
@@ -28,7 +29,7 @@ public:
         this->image_cvt = new imageConverter();
 
         // Init timer and publisher
-        this->publisher = this->create_publisher<stereo_vo::msg::StereoImage>(this->topic, 10);
+        this->publisher = this->create_publisher<vio_msgs::msg::StereoImage>(this->topic, 10);
         this->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / 30), std::bind(&ImxPublisher::publish, this));
 
         RCLCPP_INFO(this->get_logger(), "Camera publisher has been started.");
@@ -46,6 +47,8 @@ private:
         RCLCPP_INFO(this->get_logger(), "Using %d cameras.", cam_config.size());
 
         fs["sensors"]["cameras"]["topic"] >> this->topic;
+        fs["sensors"]["cameras"]["publish_visualization_msgs"] >> this->publish_visualization;
+        fs["sensors"]["cameras"]["visualization_msgs_topic"] >> this->visualization_msgs_topic;
 
         for (size_t i = 0; i < cam_config.size(); i++)
         {
@@ -78,6 +81,12 @@ private:
 
             camera->cap = videoSource::Create(camera->input_stream.c_str(), video_options);
 
+            if (this->publish_visualization)
+            {
+                camera->publisher = this->create_publisher<sensor_msgs::msg::Image>(this->visualization_msgs_topic + std::to_string(i), 10);
+                RCLCPP_INFO(this->get_logger(), "Publishing camera %d frames for visualization.", i);
+            }
+
             if (camera->cap == nullptr)
             {
                 RCLCPP_ERROR(this->get_logger(), "Could not open camera %d.", i);
@@ -87,7 +96,7 @@ private:
 
     void publish(void)
     {
-        stereo_vo::msg::StereoImage msg;
+        vio_msgs::msg::StereoImage msg;
         imageConverter::PixelType* nextFrame = NULL;
 
         for (size_t idx = 0; idx < this->cameras.size(); idx++)
@@ -111,9 +120,22 @@ private:
             if (idx == 0)
             {
                 this->image_cvt->Convert(msg.left_image, imageConverter::ROSOutputFormat, nextFrame);
+
+                if (this->publish_visualization)
+                {
+                    msg.left_image.header.stamp = this->now();
+                    camera->publisher->publish(msg.left_image);
+                }
+
             } else {
                 this->image_cvt->Convert(msg.right_image, imageConverter::ROSOutputFormat, nextFrame);
                 msg.stereo = true;
+
+                if (this->publish_visualization)
+                {
+                    msg.right_image.header.stamp = this->now();
+                    camera->publisher->publish(msg.right_image);
+                }
             }
         }
 
@@ -130,19 +152,22 @@ private:
         std::vector<int> resolution;
         videoSource *cap;
 
-        Camera() : input_stream(""), sample_rate(0), resolution({0, 0}), cap(nullptr) {}
+        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher;
+
+        Camera() : input_stream(""), sample_rate(0), resolution({0, 0}), cap(nullptr), publisher(nullptr) {}
         std::string toString(void) 
         {
             return "Camera: " + input_stream + " " + std::to_string(sample_rate) + " " + std::to_string(resolution[0]) + "x" + std::to_string(resolution[1]);
         }
     };
 
-    rclcpp::Publisher<stereo_vo::msg::StereoImage>::SharedPtr publisher;
+    rclcpp::Publisher<vio_msgs::msg::StereoImage>::SharedPtr publisher;
     rclcpp::TimerBase::SharedPtr timer;
-    std::string topic;
+    std::string topic, visualization_msgs_topic;
 
     std::vector<Camera> cameras;
     imageConverter* image_cvt;
+    bool publish_visualization;
 };
 
 int main(int argc, char *argv[])
