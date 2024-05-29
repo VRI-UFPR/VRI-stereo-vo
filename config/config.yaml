@@ -31,3 +31,7 @@ stereo_vo:
   depth_estimator_service: "/stereo_vo/depth_estimation"
   feature_extractor_service: "/stereo_vo/feature_extraction"
   feature_matcher_service: "/stereo_vo/feature_matching"
+
+  img_size:
+    width: 640
+    height: 480
