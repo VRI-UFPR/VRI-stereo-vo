@@ -2,6 +2,7 @@
 #include <chrono>
 
 #include "rclcpp/rclcpp.hpp"
+
 #include "sensor_msgs/msg/image.hpp"
 
 #include "vio_msgs/srv/depth_estimator.hpp"
@@ -15,6 +16,8 @@
 class StereoVONode : public rclcpp::Node
 {
 private:
+
+    bool service_done = true;
     
     // Subscriber
     rclcpp::Subscription<vio_msgs::msg::StereoImage>::SharedPtr stereo_img_sub;
@@ -53,38 +56,56 @@ private:
     sensor_msgs::msg::Image::SharedPtr undistortImage(const sensor_msgs::msg::Image msg, const CameraIntrinsics &intrinsics)
     {
         cv::Mat img = cv_bridge::toCvCopy(msg, "mono8")->image;
-        cv::undistort(img, img, intrinsics.camera_matrix, intrinsics.dist_coeffs);
+        cv::Mat undistorted_img;
+        cv::undistort(img, undistorted_img, intrinsics.camera_matrix, intrinsics.dist_coeffs);
+
+        // Save image for visualization
+        cv::imwrite("/workspace/undistorted.png", undistorted_img);
         
-        return cv_bridge::CvImage(msg.header, "mono8", img).toImageMsg();
+        return cv_bridge::CvImage(msg.header, "mono8", undistorted_img).toImageMsg();
+    }
+
+    void depth_callback(rclcpp::Client<vio_msgs::srv::DepthEstimator>::SharedFuture future) {
+        auto status = future.wait_for(std::chrono::seconds(1));
+        if (status == std::future_status::ready) 
+        {
+            RCLCPP_INFO(this->get_logger(), "Depth estimation completed.");
+
+            service_done = true;
+
+            // Save depth image
+            auto depth_map = future.get()->depth_map;
+            cv::Mat depth_img = cv_bridge::toCvCopy(depth_map, "mono16")->image;
+            cv::imwrite("/workspace/depth.png", depth_img);
+        } 
+        else 
+        {
+            RCLCPP_INFO(this->get_logger(), "Service In-Progress...");
+        }
     }
 
     void stereo_callback(const vio_msgs::msg::StereoImage::SharedPtr stereo_msg)
     {
+        if (!service_done)
+        {
+            return;
+        }
+
         RCLCPP_INFO(this->get_logger(), "Received stereo image message. Size: %dx%d", stereo_msg->left_image.width, stereo_msg->left_image.height);
 
         vio_msgs::msg::StereoImage undistorted_stereo_img;
         // Undistort image and create stereo image message
-        undistorted_stereo_img.left_image = undistortImage(stereo_msg->left_image, this->lcam_intrinsics);
-        undistorted_stereo_img.right_image = undistortImage(stereo_msg->right_image, this->rcam_intrinsics);
+        undistorted_stereo_img.left_image = *(this->undistortImage(stereo_msg->left_image, this->lcam_intrinsics));
+        undistorted_stereo_img.right_image = *(this->undistortImage(stereo_msg->right_image, this->rcam_intrinsics));
 
         // Send depth estimation request
         auto depth_estimator_request = std::make_shared<vio_msgs::srv::DepthEstimator::Request>();
         depth_estimator_request->stereo_image = *stereo_msg;
         waitForService(this->depth_estimator_client);
 
-        auto depth_estimator_result = this->depth_estimator_client->async_send_request(depth_estimator_request);
+        this->service_done = false;
+        auto depth_estimator_result = this->depth_estimator_client->async_send_request(depth_estimator_request, std::bind(&StereoVONode::depth_callback, this, std::placeholders::_1));
         RCLCPP_INFO(this->get_logger(), "Depth estimation request sent.");
-
-        // Wait for depth estimation result
-        if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), depth_estimator_result) == rclcpp::executor::FutureReturnCode::SUCCESS)
-        {
-            auto depth_map = depth_estimator_result.get()->depth_map;
-            RCLCPP_INFO(this->get_logger(), "Depth estimation completed. Size: %dx%d", depth_map.width, depth_map.height);
-        }
-        else
-        {
-            RCLCPP_ERROR(this->get_logger(), "Failed to get depth estimation result.");
-        }
     }   
 
 public:
@@ -99,7 +120,7 @@ public:
         std::string depth_estimator_service, feature_extractor_service, feature_matcher_service;
         cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
         cv::FileNode vo_config = fs["stereo_vo"];
-        vo_config["stereo_img_topic"] >> stereo_img_topic;
+        vo_config["stereo_image_topic"] >> stereo_img_topic;
         vo_config["left_cam_intrinsics"] >> lcam_intrinsics_file;
         vo_config["right_cam_intrinsics"] >> rcam_intrinsics_file;
         vo_config["depth_estimator_service"] >> depth_estimator_service;
@@ -118,6 +139,11 @@ public:
         this->depth_estimator_client = this->create_client<vio_msgs::srv::DepthEstimator>(depth_estimator_service);
         this->feature_extractor_client = this->create_client<vio_msgs::srv::FeatureExtractor>(feature_extractor_service);
         this->feature_matcher_client = this->create_client<vio_msgs::srv::FeatureMatcher>(feature_matcher_service);
+    }
+
+    bool is_service_done() const 
+    {
+        return this->service_done;
     }
 };
 

@@ -33,5 +33,13 @@ install(TARGETS
   stereo_vo_node
   DESTINATION lib/${PROJECT_NAME})
 
+# Add depth_estimator_server
+add_executable(depth_estimator_server src/depth_estimator_server.cpp)
+ament_target_dependencies(depth_estimator_server rclcpp sensor_msgs vio_msgs OpenCV cv_bridge)
+target_link_libraries(depth_estimator_server ${OpenCV_LIBS})
+install(TARGETS
+  depth_estimator_server
+  DESTINATION lib/${PROJECT_NAME})
+
 
 ament_package()

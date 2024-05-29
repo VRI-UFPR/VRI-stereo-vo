@@ -6,6 +6,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <cv_bridge/cv_bridge.h>
 
 #include <jetson-utils/videoSource.h>
 #include "image_converter.h"
@@ -17,25 +18,9 @@
 
 class ImxPublisher : public rclcpp::Node
 {
-public:
-    ImxPublisher(void) : Node("imx_publisher")
-    {
-        RCLCPP_INFO(this->get_logger(), "Starting camera publisher...");
-
-        this->readConfig();
-        this->initCaptures();
-        
-        // Used to convert to ROS image message
-        this->image_cvt = new imageConverter();
-
-        // Init timer and publisher
-        this->publisher = this->create_publisher<vio_msgs::msg::StereoImage>(this->topic, 10);
-        this->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / 30), std::bind(&ImxPublisher::publish, this));
-
-        RCLCPP_INFO(this->get_logger(), "Camera publisher has been started.");
-    }
-
 private:
+    // video writer
+    cv::VideoWriter writer;
 
     void readConfig(void)
     {
@@ -123,6 +108,10 @@ private:
 
                 if (this->publish_visualization)
                 {
+                    // Save image for visualization
+                    // cv::Mat cv_image = cv_bridge::toCvCopy(msg.left_image, "bgr8")->image;
+                    // this->writer.write(cv_image);
+
                     msg.left_image.header.stamp = this->now();
                     camera->publisher->publish(msg.left_image);
                 }
@@ -168,6 +157,28 @@ private:
     std::vector<Camera> cameras;
     imageConverter* image_cvt;
     bool publish_visualization;
+
+public:
+
+    ImxPublisher(void) : Node("imx_publisher")
+    {
+        RCLCPP_INFO(this->get_logger(), "Starting camera publisher...");
+
+        this->readConfig();
+        this->initCaptures();
+        
+        // Used to convert to ROS image message
+        this->image_cvt = new imageConverter();
+
+        // Init video writer for mp4
+        this->writer.open("/workspace/output.mp4", cv::VideoWriter::fourcc('m', 'p', '4', 'v'), 30, cv::Size(640, 480), true);
+
+        // Init timer and publisher
+        this->publisher = this->create_publisher<vio_msgs::msg::StereoImage>(this->topic, 10);
+        this->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / 30), std::bind(&ImxPublisher::publish, this));
+
+        RCLCPP_INFO(this->get_logger(), "Camera publisher has been started.");
+    }
 };
 
 int main(int argc, char *argv[])

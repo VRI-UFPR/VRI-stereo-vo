@@ -8,7 +8,7 @@ sensors:
 
   cameras:
     topic: "/sensors/imx/image_stereo"
-    publish_visualization_msgs: 0
+    publish_visualization_msgs: 1
     visualization_msgs_topic: "/sensors/imx/viz"
     devices:
       - sample_rate: 30
@@ -32,6 +32,6 @@ stereo_vo:
   feature_extractor_service: "/stereo_vo/feature_extraction"
   feature_matcher_service: "/stereo_vo/feature_matching"
 
-  img_size:
+  image_size:
     width: 640
     height: 480
