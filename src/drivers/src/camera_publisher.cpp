@@ -19,8 +19,27 @@
 class ImxPublisher : public rclcpp::Node
 {
 private:
-    // video writer
-    cv::VideoWriter writer;
+
+    struct Camera
+    {
+        std::string input_stream;
+        std::string topic;
+        int sample_rate;
+        std::vector<int> resolution;
+        videoSource *cap;
+        imageConverter* cvt;
+
+        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher;
+        rclcpp::TimerBase::SharedPtr timer;
+
+        Camera() : input_stream(""), sample_rate(0), resolution({0, 0}), cap(nullptr), publisher(nullptr) {}
+        std::string toString(void) 
+        {
+            return "Camera: " + input_stream + " " + std::to_string(sample_rate) + " " + std::to_string(resolution[0]) + "x" + std::to_string(resolution[1]);
+        }
+    };
+
+    std::vector<Camera> cameras;
 
     void readConfig(void)
     {
@@ -31,13 +50,10 @@ private:
 
         RCLCPP_INFO(this->get_logger(), "Using %d cameras.", cam_config.size());
 
-        fs["sensors"]["cameras"]["topic"] >> this->topic;
-        fs["sensors"]["cameras"]["publish_visualization_msgs"] >> this->publish_visualization;
-        fs["sensors"]["cameras"]["visualization_msgs_topic"] >> this->visualization_msgs_topic;
-
         for (size_t i = 0; i < cam_config.size(); i++)
         {
             cam_config[i]["input_stream"] >> this->cameras[i].input_stream;
+            cam_config[i]["topic"] >> this->cameras[i].topic;
             cam_config[i]["sample_rate"] >> this->cameras[i].sample_rate;
             cam_config[i]["resolution"] >> this->cameras[i].resolution;
         }
@@ -65,12 +81,7 @@ private:
             video_options.latency = 1;
 
             camera->cap = videoSource::Create(camera->input_stream.c_str(), video_options);
-
-            if (this->publish_visualization)
-            {
-                camera->publisher = this->create_publisher<sensor_msgs::msg::Image>(this->visualization_msgs_topic + std::to_string(i), 10);
-                RCLCPP_INFO(this->get_logger(), "Publishing camera %d frames for visualization.", i);
-            }
+            camera->cvt = new imageConverter();
 
             if (camera->cap == nullptr)
             {
@@ -79,84 +90,46 @@ private:
         }
     }
 
-    void publish(void)
+    void initPublishers(void)
     {
-        vio_msgs::msg::StereoImage msg;
+        for (size_t i = 0; i < this->cameras.size(); i++)
+        {
+            Camera *camera = &this->cameras[i];
+
+            camera->publisher = this->create_publisher<sensor_msgs::msg::Image>(camera->topic, 10);
+
+            // Use std::bind to pass the camera to the callback function
+            std::function<void()> callback = std::bind(&ImxPublisher::publish, this, camera);
+            camera->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / camera->sample_rate), callback);
+        }
+    }
+
+    void publish(Camera *camera)
+    {
+        sensor_msgs::msg::Image msg;
         imageConverter::PixelType* nextFrame = NULL;
 
-        for (size_t idx = 0; idx < this->cameras.size(); idx++)
+        // Retrieve the next frame from the camera
+        if(!camera->cap->Capture(&nextFrame, 1000))
         {
-            Camera* camera = &this->cameras[idx];
-
-            // Retrieve the next frame from the camera
-            if(!camera->cap->Capture(&nextFrame, 1000))
-            {
-                RCLCPP_ERROR(this->get_logger(), "Failed to capture camera %d frame.", idx);
-                return;
-            }
-
-            // Resize and convert to a ROS message
-            if(!this->image_cvt->Resize(camera->cap->GetWidth(), camera->cap->GetHeight(), imageConverter::ROSOutputFormat))
-            {
-                RCLCPP_ERROR(this->get_logger(), "Failed to resize camera %d image converter.", idx);
-                return;
-            }
-
-            if (idx == 0)
-            {
-                this->image_cvt->Convert(msg.left_image, imageConverter::ROSOutputFormat, nextFrame);
-
-                if (this->publish_visualization)
-                {
-                    // Save image for visualization
-                    // cv::Mat cv_image = cv_bridge::toCvCopy(msg.left_image, "bgr8")->image;
-                    // this->writer.write(cv_image);
-
-                    msg.left_image.header.stamp = this->now();
-                    camera->publisher->publish(msg.left_image);
-                }
-
-            } else {
-                this->image_cvt->Convert(msg.right_image, imageConverter::ROSOutputFormat, nextFrame);
-                msg.stereo = true;
-
-                if (this->publish_visualization)
-                {
-                    msg.right_image.header.stamp = this->now();
-                    camera->publisher->publish(msg.right_image);
-                }
-            }
+            RCLCPP_ERROR(this->get_logger(), "Failed to capture camera %s frame.", camera->input_stream.c_str());
+            return;
         }
 
+        // Resize and convert to a ROS message
+        if(!camera->cvt->Resize(camera->cap->GetWidth(), camera->cap->GetHeight(), imageConverter::ROSOutputFormat))
+        {
+            RCLCPP_ERROR(this->get_logger(), "Failed to resize camera %s image converter.", camera->input_stream.c_str());
+            return;
+        }
+
+        camera->cvt->Convert(msg, imageConverter::ROSOutputFormat, nextFrame);
+
         msg.header.stamp = this->now();
-        this->publisher->publish(msg);
+        camera->publisher->publish(msg);
 
         RCLCPP_INFO_ONCE(this->get_logger(), "Publishing camera frames...");
     }
-   
-    struct Camera
-    {
-        std::string input_stream;
-        int sample_rate;
-        std::vector<int> resolution;
-        videoSource *cap;
-
-        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher;
-
-        Camera() : input_stream(""), sample_rate(0), resolution({0, 0}), cap(nullptr), publisher(nullptr) {}
-        std::string toString(void) 
-        {
-            return "Camera: " + input_stream + " " + std::to_string(sample_rate) + " " + std::to_string(resolution[0]) + "x" + std::to_string(resolution[1]);
-        }
-    };
-
-    rclcpp::Publisher<vio_msgs::msg::StereoImage>::SharedPtr publisher;
-    rclcpp::TimerBase::SharedPtr timer;
-    std::string topic, visualization_msgs_topic;
-
-    std::vector<Camera> cameras;
-    imageConverter* image_cvt;
-    bool publish_visualization;
 
 public:
 
@@ -166,16 +139,7 @@ public:
 
         this->readConfig();
         this->initCaptures();
-        
-        // Used to convert to ROS image message
-        this->image_cvt = new imageConverter();
-
-        // Init video writer for mp4
-        this->writer.open("/workspace/output.mp4", cv::VideoWriter::fourcc('m', 'p', '4', 'v'), 30, cv::Size(640, 480), true);
-
-        // Init timer and publisher
-        this->publisher = this->create_publisher<vio_msgs::msg::StereoImage>(this->topic, 10);
-        this->timer = this->create_wall_timer(std::chrono::milliseconds(1000 / 30), std::bind(&ImxPublisher::publish, this));
+        this->initPublishers();
 
         RCLCPP_INFO(this->get_logger(), "Camera publisher has been started.");
     }

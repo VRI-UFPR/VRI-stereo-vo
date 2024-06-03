@@ -7,26 +7,29 @@ sensors:
     bus: 1
 
   cameras:
-    topic: "/sensors/imx/image_stereo"
-    publish_visualization_msgs: 1
-    visualization_msgs_topic: "/sensors/imx/viz"
     devices:
       - sample_rate: 30
+        topic: "/sensors/imx_left/image_raw"
         input_stream: "csi://0"
         resolution:
           width: 640
           height: 480
 
       - sample_rate: 30
+        topic: "/sensors/imx_right/image_raw"
         input_stream: "csi://1"
         resolution:
           width: 640
           height: 480
 
 stereo_vo:
-  stereo_image_topic: "/sensors/imx/image_stereo"
-  right_cam_intrinsics: "/workspace/config/imx_right_intrinsics.yaml"
-  left_cam_intrinsics: "/workspace/config/imx_left_intrinsics.yaml"
+  left_cam:
+    topic: "/sensors/imx_left/image_raw"
+    intrinsics_file: "/workspace/config/imx_left_intrinsics.yaml"
+
+  right_cam:
+    topic: "/sensors/imx_right/image_raw"
+    intrinsics_file: "/workspace/config/imx_right_intrinsics.yaml"
 
   depth_estimator_service: "/stereo_vo/depth_estimation"
   feature_extractor_service: "/stereo_vo/feature_extraction"

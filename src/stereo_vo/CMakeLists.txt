@@ -11,6 +11,7 @@ include_directories(include)
 # Find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(message_filters REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 
@@ -27,7 +28,7 @@ find_package(cv_bridge REQUIRED)
 
 # Add stereo_vo_node
 add_executable(stereo_vo_node src/stereo_vo_node.cpp)
-ament_target_dependencies(stereo_vo_node rclcpp sensor_msgs vio_msgs OpenCV cv_bridge)
+ament_target_dependencies(stereo_vo_node rclcpp message_filters sensor_msgs vio_msgs OpenCV cv_bridge)
 target_link_libraries(stereo_vo_node ${OpenCV_LIBS})
 install(TARGETS
   stereo_vo_node
