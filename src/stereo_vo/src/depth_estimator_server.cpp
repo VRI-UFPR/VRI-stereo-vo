@@ -5,6 +5,7 @@
 #include "std_msgs/msg/header.hpp"
 
 #include <string>
+#include <chrono>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/cudastereo.hpp>
@@ -18,7 +19,7 @@ private:
 
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_image_pub;
 
-    cv::Ptr<cv::cuda::StereoBeliefPropagation> stereo_matcher;
+    cv::Ptr<cv::cuda::StereoConstantSpaceBP> stereo_matcher;
     cv::cuda::GpuMat img_left_gpu, img_right_gpu, depth_map_gpu;
 
     // Camera intrinsics
@@ -39,6 +40,7 @@ private:
         cv::Mat img_left = cv_bridge::toCvCopy(request->stereo_image.left_image, "mono8")->image;
         cv::Mat img_right = cv_bridge::toCvCopy(request->stereo_image.right_image, "mono8")->image;
 
+        auto estimation_start = std::chrono::high_resolution_clock::now();
         // Upload images to GPU
         this->img_left_gpu.upload(img_left);
         this->img_right_gpu.upload(img_right);
@@ -49,6 +51,10 @@ private:
         // Download depth map
         cv::Mat depth_map;
         this->depth_map_gpu.download(depth_map);
+
+        auto estimation_end = std::chrono::high_resolution_clock::now();
+        RCLCPP_INFO(this->get_logger(), "Depth estimation time: %f ms", 
+            std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
 
         // Publish depth image for visualization
         cv::Mat depth_map_viz;
@@ -83,11 +89,11 @@ public:
         this->depth_image_pub = this->create_publisher<sensor_msgs::msg::Image>("/stereo_vo/depth_image", 10);
 
         // Initialize stereo BM
-        int ndisp, iters, levels;
-        cv::cuda::StereoBeliefPropagation::estimateRecommendedParams(img_size.width, img_size.height, ndisp, iters, levels);
+        int ndisp, iters, levels, nr_plane;
+        cv::cuda::StereoConstantSpaceBP::estimateRecommendedParams(img_size.width, img_size.height, ndisp, iters, levels, nr_plane);
         RCLCPP_INFO_STREAM(this->get_logger(), "Recommended BP parameters for " << img_size.width << "x" << img_size.height << ": " 
-            << "ndisp=" << ndisp << ", iters=" << iters << ", levels=" << levels);
-        this->stereo_matcher = cv::cuda::createStereoBeliefPropagation(ndisp, iters, levels, CV_16SC1);        
+            << "ndisp=" << ndisp << ", iters=" << iters << ", levels=" << levels << ", nr_plane=" << nr_plane);
+        this->stereo_matcher = cv::cuda::createStereoConstantSpaceBP(ndisp, iters, levels, nr_plane, CV_16SC1);        
 
         RCLCPP_INFO(this->get_logger(), "Depth estimator server started.");
     }
