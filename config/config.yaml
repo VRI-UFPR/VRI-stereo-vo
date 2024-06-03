@@ -32,6 +32,9 @@ stereo_vo:
     intrinsics_file: "/workspace/config/imx_right_intrinsics.yaml"
 
   depth_estimator_service: "/stereo_vo/depth_estimation"
+  num_disparities: 64
+  block_size: 21  # Must be odd
+
   feature_extractor_service: "/stereo_vo/feature_extraction"
   feature_matcher_service: "/stereo_vo/feature_matching"
 

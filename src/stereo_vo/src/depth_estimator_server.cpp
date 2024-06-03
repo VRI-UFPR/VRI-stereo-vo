@@ -19,7 +19,7 @@ private:
 
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_image_pub;
 
-    cv::Ptr<cv::cuda::StereoConstantSpaceBP> stereo_matcher;
+    cv::Ptr<cv::cuda::StereoBM> stereo_matcher;
     cv::cuda::GpuMat img_left_gpu, img_right_gpu, depth_map_gpu;
 
     // Camera intrinsics
@@ -75,9 +75,12 @@ public:
         // Parse parameters
         std::string depth_estimator_service; 
         cv::Size img_size;
+        int num_disparities, block_size;
         cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
         cv::FileNode vo_config = fs["stereo_vo"];
         vo_config["depth_estimator_service"] >> depth_estimator_service;
+        vo_config["num_disparities"] >> num_disparities;
+        vo_config["block_size"] >> block_size;
         vo_config["image_size"] >> img_size;
         fs.release();
 
@@ -89,11 +92,9 @@ public:
         this->depth_image_pub = this->create_publisher<sensor_msgs::msg::Image>("/stereo_vo/depth_image", 10);
 
         // Initialize stereo BM
-        int ndisp, iters, levels, nr_plane;
-        cv::cuda::StereoConstantSpaceBP::estimateRecommendedParams(img_size.width, img_size.height, ndisp, iters, levels, nr_plane);
-        RCLCPP_INFO_STREAM(this->get_logger(), "Recommended BP parameters for " << img_size.width << "x" << img_size.height << ": " 
-            << "ndisp=" << ndisp << ", iters=" << iters << ", levels=" << levels << ", nr_plane=" << nr_plane);
-        this->stereo_matcher = cv::cuda::createStereoConstantSpaceBP(ndisp, iters, levels, nr_plane, CV_16SC1);        
+        RCLCPP_INFO_STREAM(this->get_logger(), "Using BM parameters for " << img_size.width << "x" << img_size.height << ": " 
+            << "num_disparities=" << num_disparities << ", block_size=" << block_size);
+        this->stereo_matcher = cv::cuda::createStereoBM(num_disparities, block_size);        
 
         RCLCPP_INFO(this->get_logger(), "Depth estimator server started.");
     }
