@@ -8,19 +8,18 @@
 #include <chrono>
 
 #include <opencv2/opencv.hpp>
-#include <opencv2/cudastereo.hpp>
 #include <cv_bridge/cv_bridge.h>
+
+#include "depth_estimator.hpp"
 
 class DepthEstimatorServer : public rclcpp::Node
 {
 private:
 
     rclcpp::Service<vio_msgs::srv::DepthEstimator>::SharedPtr depth_server;
-
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_image_pub;
 
-    cv::Ptr<cv::cuda::StereoBM> stereo_matcher;
-    cv::cuda::GpuMat img_left_gpu, img_right_gpu, depth_map_gpu;
+    std::shared_ptr<DepthEstimator> depth_estimator;
 
     // Camera intrinsics
     struct CameraIntrinsics
@@ -41,16 +40,8 @@ private:
         cv::Mat img_right = cv_bridge::toCvCopy(request->stereo_image.right_image, "mono8")->image;
 
         auto estimation_start = std::chrono::high_resolution_clock::now();
-        // Upload images to GPU
-        this->img_left_gpu.upload(img_left);
-        this->img_right_gpu.upload(img_right);
-
-        // Compute disparity map
-        this->stereo_matcher->compute(this->img_left_gpu, this->img_right_gpu, this->depth_map_gpu);
-
-        // Download depth map
-        cv::Mat depth_map;
-        this->depth_map_gpu.download(depth_map);
+        
+        cv::Mat depth_map = this->depth_estimator.compute(img_left, img_right);
 
         auto estimation_end = std::chrono::high_resolution_clock::now();
         RCLCPP_INFO(this->get_logger(), "Depth estimation time: %f ms", 
@@ -60,7 +51,6 @@ private:
         cv::Mat depth_map_viz;
         cv::normalize(depth_map, depth_map_viz, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         this->depth_image_pub->publish(*(cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", depth_map_viz).toImageMsg()));
-        
 
         response->depth_map = *(cv_bridge::CvImage(std_msgs::msg::Header(), "mono16", depth_map).toImageMsg());
 
@@ -77,11 +67,8 @@ public:
         cv::Size img_size;
         int num_disparities, block_size;
         cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
-        cv::FileNode vo_config = fs["stereo_vo"];
-        vo_config["depth_estimator_service"] >> depth_estimator_service;
-        vo_config["num_disparities"] >> num_disparities;
-        vo_config["block_size"] >> block_size;
-        vo_config["image_size"] >> img_size;
+        cv::FileNode de_config = fs["stereo_vo"]["depth_estimator_params"];
+        de_config["depth_estimator_service"] >> depth_estimator_service;
         fs.release();
 
         // Initialize service
@@ -92,9 +79,7 @@ public:
         this->depth_image_pub = this->create_publisher<sensor_msgs::msg::Image>("/stereo_vo/depth_image", 10);
 
         // Initialize stereo BM
-        RCLCPP_INFO_STREAM(this->get_logger(), "Using BM parameters for " << img_size.width << "x" << img_size.height << ": " 
-            << "num_disparities=" << num_disparities << ", block_size=" << block_size);
-        this->stereo_matcher = cv::cuda::createStereoBM(num_disparities, block_size);        
+        this->depth_estimator = std::make_shared<DepthEstimator>(de_config);
 
         RCLCPP_INFO(this->get_logger(), "Depth estimator server started.");
     }
