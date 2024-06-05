@@ -1,4 +1,6 @@
-sensor_msgs/Image current_image
-sensor_msgs/Image previous_image
+sensor_msgs/Image current_image_desc
+sensor_msgs/Image previous_image_desc
 ---
-vision_msgs/Detection2DArray matches
+std_msgs/Int32MultiArray curr_img_points
+std_msgs/Int32MultiArray prev_img_points
+std_msgs/Int32MultiArray distances

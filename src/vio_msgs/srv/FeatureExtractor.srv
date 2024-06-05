@@ -1,3 +1,4 @@
 sensor_msgs/Image image
 ---
-vision_msgs/Detection2DArray detections
+sensor_msgs/Image key_points
+sensor_msgs/Image descriptors

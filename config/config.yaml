@@ -31,13 +31,22 @@ stereo_vo:
     topic: "/sensors/imx_right/image_raw"
     intrinsics_file: "/workspace/config/imx_right_intrinsics.yaml"
 
-  depth_estimator_service: "/stereo_vo/depth_estimation"
-  num_disparities: 64
-  block_size: 21  # Must be odd
+  depth_estimator_params:
+    depth_estimator_service: "/stereo_vo/depth_estimation"
+    
+    image_size:
+      width: 640
+      height: 480
+
+    depth_algorithm: "cuda_bm"  # stereo_bm, stereo_sgbm, cuda_bm, belief_propagation, constant_space_bp
+    # Algorithm specific parameters
+    # Set to -1 to use default/recommended values by OpenCV 
+    # (refer to https://docs.opencv.org/3.4/d2/d6e/classcv_1_1StereoMatcher.html)
+    num_disparities: 64
+    block_size: 21  # Must be odd
+    iterations: -1
+    levels: 3
+    nr_plane: 4
 
   feature_extractor_service: "/stereo_vo/feature_extraction"
   feature_matcher_service: "/stereo_vo/feature_matching"
-
-  image_size:
-    width: 640
-    height: 480
