@@ -1,4 +1,5 @@
 #include <string>
+#include <iostream>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/cudastereo.hpp>
@@ -10,7 +11,7 @@ private:
     cv::Ptr<cv::StereoMatcher> stereo_matcher = nullptr;
     bool using_cuda = false;
     bool initialized = false;
-    cv::Size img_size(0, 0);
+    cv::Size img_size{0, 0};
 
     void initStereoBM(const int ndisp, const int block_size);
     void initStereoSGBM(const int ndisp, const int block_size);
@@ -102,31 +103,18 @@ DepthEstimator::DepthEstimator(const cv::FileNode &config)
     int levels = config["levels"];
     int nr_plane = config["nr_plane"];
 
-    switch (algorithm)
-    {
-    case "stereo_bm":
+    std::cout << "[Depth Estimator] Using '" << algorithm << "'." << std::endl;
+
+    if (algorithm == "stereo_bm")
         this->initStereoBM(ndisp, block_size);
-        break;
-
-    case "stereo_sgbm":
+    else if (algorithm == "stereo_sgbm")
         this->initStereoSGBM(ndisp, block_size);
-        break;
-
-    case "cuda_bm":
+    else if (algorithm == "cuda_bm")
         this->initCudaBM(ndisp, block_size);
-        break;
-
-    case "belief_propagation":
+    else if (algorithm == "belief_propagation")
         this->initBeliefPropagation(img_size, ndisp, iter, levels);
-        break;
-
-    case "constant_space_bp":
+    else if (algorithm == "constant_space_bp")
         this->initConstantSpaceBP(img_size, ndisp, iter, levels, nr_plane);
-        break;
-    
-    default:
-        break;
-    }
 }
 
 cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_right)

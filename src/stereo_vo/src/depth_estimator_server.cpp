@@ -41,7 +41,7 @@ private:
 
         auto estimation_start = std::chrono::high_resolution_clock::now();
         
-        cv::Mat depth_map = this->depth_estimator.compute(img_left, img_right);
+        cv::Mat depth_map = this->depth_estimator->compute(img_left, img_right);
 
         auto estimation_end = std::chrono::high_resolution_clock::now();
         RCLCPP_INFO(this->get_logger(), "Depth estimation time: %f ms", 
@@ -63,13 +63,9 @@ public:
         RCLCPP_INFO(this->get_logger(), "Starting depth estimator server...");
 
         // Parse parameters
-        std::string depth_estimator_service; 
-        cv::Size img_size;
-        int num_disparities, block_size;
         cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
         cv::FileNode de_config = fs["stereo_vo"]["depth_estimator_params"];
-        de_config["depth_estimator_service"] >> depth_estimator_service;
-        fs.release();
+        std::string depth_estimator_service = de_config["depth_estimator_service"].string();
 
         // Initialize service
         this->depth_server = this->create_service<vio_msgs::srv::DepthEstimator>(depth_estimator_service, 
@@ -79,7 +75,10 @@ public:
         this->depth_image_pub = this->create_publisher<sensor_msgs::msg::Image>("/stereo_vo/depth_image", 10);
 
         // Initialize stereo BM
+        std::string de_algorithm = de_config["depth_algorithm"];
         this->depth_estimator = std::make_shared<DepthEstimator>(de_config);
+        
+        fs.release();
 
         RCLCPP_INFO(this->get_logger(), "Depth estimator server started.");
     }

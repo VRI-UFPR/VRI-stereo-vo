@@ -1,28 +1,30 @@
 #include "rclcpp/rclcpp.hpp"
 
-#include "stereo_vo/srv/feature_matcher.hpp"
+#include "vio_msgs/srv/feature_matcher.hpp"
 #include "sensor_msgs/msg/image.hpp"
 
 #include <string>
-#include <vector
+#include <vector>
 
 #include <opencv2/opencv.hpp>
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/cudafeatures2d.hpp>
 
 class FeatureMatcherServer : public rclcpp::Node
 {
 private:
 
-    rclcpp::Service<stereo_vo::srv::FeatureMatcher>::SharedPtr feature_server;
+    rclcpp::Service<vio_msgs::srv::FeatureMatcher>::SharedPtr feature_server;
 
     cv::Ptr<cv::cuda::DescriptorMatcher> matcher;
 
-    void feature_callback(const std::shared_ptr<stereo_vo::srv::FeatureMatcher::Request> request,
-                        std::shared_ptr<stereo_vo::srv::FeatureMatcher::Response> response)
+    void feature_callback(const std::shared_ptr<vio_msgs::srv::FeatureMatcher::Request> request,
+                        std::shared_ptr<vio_msgs::srv::FeatureMatcher::Response> response)
     {
         RCLCPP_INFO_STREAM(this->get_logger(), 
             "Received feature matching request. Size: " 
-            << request->current_image.width << "x" << request->current_image.height << ", " 
-            << request->previous_image.width << "x" << request->previous_image.height);
+            << request->current_image_desc.width << "x" << request->current_image_desc.height << ", " 
+            << request->previous_image_desc.width << "x" << request->previous_image_desc.height);
             
         cv::Mat current_image_desc = cv_bridge::toCvCopy(request->current_image_desc, "mono8")->image;
         cv::Mat previous_image_desc = cv_bridge::toCvCopy(request->previous_image_desc, "mono8")->image;
@@ -46,17 +48,12 @@ private:
         }
 
         // Convert to ros message
-        std::vector<int> current_indices, previous_indices, distances;
         for (size_t i = 0; i < good_matches.size(); i++)
         {
-            current_indices.push_back(good_matches[i].queryIdx);
-            previous_indices.push_back(good_matches[i].trainIdx);
-            distances.push_back(good_matches[i].distance);
+            response->curr_img_points.data.push_back(good_matches[i].queryIdx);
+            response->prev_img_points.data.push_back(good_matches[i].trainIdx);
+            response->distances.data.push_back(good_matches[i].distance);
         }
-
-        response->current_indices = current_indices;
-        response->previous_indices = previous_indices;
-        response->distances = distances;
     }
 
 public:
@@ -73,7 +70,7 @@ public:
         fs.release();
 
         // Initialize service
-        this->feature_server = this->create_service<stereo_vo::srv::FeatureMatcher>(feature_matcher_service, 
+        this->feature_server = this->create_service<vio_msgs::srv::FeatureMatcher>(feature_matcher_service, 
             std::bind(&FeatureMatcherServer::feature_callback, this, std::placeholders::_1, std::placeholders::_2));
 
         // Initialize matcher

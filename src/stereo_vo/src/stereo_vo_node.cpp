@@ -84,6 +84,20 @@ private:
         }
     }
 
+    void feature_callback(rclcpp::Client<vio_msgs::srv::FeatureExtractor>::SharedFuture future) {
+        auto status = future.wait_for(std::chrono::seconds(1));
+        if (status == std::future_status::ready) 
+        {
+            RCLCPP_INFO(this->get_logger(), "Feature extraction completed.");
+
+            service_done = true;
+        } 
+        else 
+        {
+            RCLCPP_INFO(this->get_logger(), "Service In-Progress...");
+        }
+    }    
+
     void stereo_callback(const sensor_msgs::msg::Image::ConstSharedPtr &lcam_msg, const sensor_msgs::msg::Image::ConstSharedPtr &rcam_msg)
     {
         if (!service_done)
@@ -99,13 +113,22 @@ private:
         undistorted_stereo_img.right_image = *(this->undistortImage(rcam_msg, this->rcam_intrinsics));
 
         // Send depth estimation request
-        auto depth_estimator_request = std::make_shared<vio_msgs::srv::DepthEstimator::Request>();
-        depth_estimator_request->stereo_image = undistorted_stereo_img;
-        waitForService(this->depth_estimator_client);
+        // auto depth_estimator_request = std::make_shared<vio_msgs::srv::DepthEstimator::Request>();
+        // depth_estimator_request->stereo_image = undistorted_stereo_img;
+        // waitForService(this->depth_estimator_client);
+
+        // this->service_done = false;
+        // auto depth_estimator_result = this->depth_estimator_client->async_send_request(depth_estimator_request, std::bind(&StereoVONode::depth_callback, this, std::placeholders::_1));
+        // RCLCPP_INFO(this->get_logger(), "Depth estimation request sent.");
+
+        // Send feature extraction request
+        auto feature_extractor_request = std::make_shared<vio_msgs::srv::FeatureExtractor::Request>();
+        feature_extractor_request->image = undistorted_stereo_img.left_image;
+        waitForService(this->feature_extractor_client);
 
         this->service_done = false;
-        auto depth_estimator_result = this->depth_estimator_client->async_send_request(depth_estimator_request, std::bind(&StereoVONode::depth_callback, this, std::placeholders::_1));
-        RCLCPP_INFO(this->get_logger(), "Depth estimation request sent.");
+        auto feature_extractor_result = this->feature_extractor_client->async_send_request(feature_extractor_request, std::bind(&StereoVONode::feature_callback, this, std::placeholders::_1));
+        RCLCPP_INFO(this->get_logger(), "Feature extraction request sent.");
     }   
 
 public:
@@ -125,7 +148,7 @@ public:
         vo_config["right_cam"]["topic"] >> rcam_topic;
         vo_config["left_cam"]["intrinsics_file"] >> lcam_intrinsics_file;
         vo_config["right_cam"]["intrinsics_file"] >> rcam_intrinsics_file;
-        vo_config["depth_estimator_service"] >> depth_estimator_service;
+        vo_config["depth_estimator_params"]["depth_estimator_service"] >> depth_estimator_service;
         vo_config["feature_extractor_service"] >> feature_extractor_service;
         vo_config["feature_matcher_service"] >> feature_matcher_service;
         fs.release();
