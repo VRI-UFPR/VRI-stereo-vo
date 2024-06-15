@@ -23,6 +23,11 @@ sensors:
           height: 480
 
 stereo_vo:
+
+  debug_visualization: 1
+  depth_map_viz: "/stereo_vo/depth_map_viz"
+  feature_viz: "/stereo_vo/feature_viz"
+
   left_cam:
     topic: "/sensors/imx_left/image_raw"
     intrinsics_file: "/workspace/config/imx_left_intrinsics.yaml"
@@ -49,4 +54,3 @@ stereo_vo:
     nr_plane: 4
 
   feature_extractor_service: "/stereo_vo/feature_extraction"
-  feature_matcher_service: "/stereo_vo/feature_matching"

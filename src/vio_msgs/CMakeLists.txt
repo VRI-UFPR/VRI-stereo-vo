@@ -15,18 +15,15 @@ find_package(rosidl_default_generators REQUIRED)
 
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(vision_msgs REQUIRED)
 
 find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   # Build services
   "srv/DepthEstimator.srv"
   "srv/FeatureExtractor.srv"
-  "srv/FeatureMatcher.srv"
 
   # Build messages
-  "msg/StereoImage.msg"
-  DEPENDENCIES sensor_msgs std_msgs vision_msgs
+  DEPENDENCIES sensor_msgs std_msgs
 )
 
 ament_package()

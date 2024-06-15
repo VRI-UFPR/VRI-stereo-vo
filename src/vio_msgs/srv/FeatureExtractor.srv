@@ -1,4 +1,8 @@
-sensor_msgs/Image image
+sensor_msgs/Image curr_img
+sensor_msgs/Image prev_img_desc
 ---
-sensor_msgs/Image key_points
-sensor_msgs/Image descriptors
+sensor_msgs/Image curr_img_desc
+std_msgs/Int32MultiArray curr_img_keypoints
+std_msgs/Int32MultiArray curr_img_points
+std_msgs/Int32MultiArray prev_img_points
+std_msgs/Int32MultiArray distances

@@ -1,6 +1,0 @@
-sensor_msgs/Image current_image_desc
-sensor_msgs/Image previous_image_desc
----
-std_msgs/Int32MultiArray curr_img_points
-std_msgs/Int32MultiArray prev_img_points
-std_msgs/Int32MultiArray distances

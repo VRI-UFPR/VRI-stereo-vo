@@ -50,12 +50,10 @@ install(TARGETS
   feature_extractor_server
   DESTINATION lib/${PROJECT_NAME})
 
-# Add feature_matcher_server
-add_executable(feature_matcher_server src/feature_matcher_server.cpp)
-ament_target_dependencies(feature_matcher_server rclcpp sensor_msgs vio_msgs OpenCV cv_bridge)
-target_link_libraries(feature_matcher_server ${OpenCV_LIBS})
-install(TARGETS
-  feature_matcher_server
-  DESTINATION lib/${PROJECT_NAME})
+# Copy launch files
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}
+)
 
 ament_package()
