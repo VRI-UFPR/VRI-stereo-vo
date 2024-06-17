@@ -23,6 +23,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/FeatureExtractor.srv"
 
   # Build messages
+  "msg/DMatches.msg"
+  "msg/KeyPoints.msg"
+
   DEPENDENCIES sensor_msgs std_msgs
 )
 

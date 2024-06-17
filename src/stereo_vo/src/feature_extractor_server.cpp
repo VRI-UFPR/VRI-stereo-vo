@@ -4,6 +4,8 @@
 #include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/header.hpp"
 
+#include "opencv_conversions.hpp"
+
 #include <string>
 #include <vector>
 #include <chrono>
@@ -64,8 +66,8 @@ private:
         auto estimation_start = std::chrono::high_resolution_clock::now();
         
         // Convert data from request
-        cv::Mat curr_img = cv_bridge::toCvCopy(request->curr_img, "mono8")->image;
-        cv::Mat prev_img_desc = cv_bridge::toCvCopy(request->prev_img_desc, "mono8")->image;
+        cv::Mat curr_img = OpenCVConversions::toCvImage(request->curr_img);
+        cv::Mat prev_img_desc = OpenCVConversions::toCvImage(request->prev_img_desc);
 
         // Extract features from current image
         cv::Mat curr_img_desc;
@@ -76,24 +78,14 @@ private:
         std::vector<cv::DMatch> good_matches;
         this->featureMatch(curr_img_desc, prev_img_desc, good_matches);
 
+        // Convert to ros message
+        response->curr_img_desc = OpenCVConversions::toRosImage(curr_img_desc);
+        response->curr_img_kp = OpenCVConversions::toRosKeyPoints(curr_img_kp);
+        response->good_matches = OpenCVConversions::toRosDMatches(good_matches);
+
         auto estimation_end = std::chrono::high_resolution_clock::now();
         RCLCPP_DEBUG(this->get_logger(), "Feature extraction time: %f ms", 
             std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
-
-        // Convert to ros message
-        response->curr_img_desc = *(cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", curr_img_desc).toImageMsg());
-        for (size_t i = 0; i < good_matches.size(); i++)
-        {
-            response->curr_img_points.data.push_back(good_matches[i].queryIdx);
-            response->prev_img_points.data.push_back(good_matches[i].trainIdx);
-            response->distances.data.push_back(good_matches[i].distance);
-        }
-        for (size_t i = 0; i < curr_img_kp.size(); i++)
-        {
-            response->curr_img_keypoints.data.push_back(curr_img_kp[i].pt.x);
-            response->curr_img_keypoints.data.push_back(curr_img_kp[i].pt.y);
-        }
-
         RCLCPP_INFO(this->get_logger(), "Feature extraction completed.");
     }
 

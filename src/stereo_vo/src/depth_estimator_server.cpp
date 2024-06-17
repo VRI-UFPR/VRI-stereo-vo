@@ -4,6 +4,8 @@
 #include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/header.hpp"
 
+#include "opencv_conversions.hpp"
+
 #include <string>
 #include <chrono>
 
@@ -27,23 +29,21 @@ private:
             "Received depth estimation request. Size: " 
             << request->left_image.width << "x" << request->left_image.height << ", " 
             << request->right_image.width << "x" << request->right_image.height);
-
-        cv::Mat img_left = cv_bridge::toCvCopy(request->left_image, "mono8")->image;
-        cv::Mat img_right = cv_bridge::toCvCopy(request->right_image, "mono8")->image;
-
         auto estimation_start = std::chrono::high_resolution_clock::now();
+
+        cv::Mat img_left = OpenCVConversions::toCvImage(request->left_image, "mono8");
+        cv::Mat img_right = OpenCVConversions::toCvImage(request->right_image, "mono8");
         
         cv::Mat depth_map = this->depth_estimator->compute(img_left, img_right);
 
         // Normalize
         cv::normalize(depth_map, depth_map, 0, 255, cv::NORM_MINMAX, CV_8UC1);
 
+        response->depth_map = OpenCVConversions::toRosImage(depth_map, "mono8");
+
         auto estimation_end = std::chrono::high_resolution_clock::now();
         RCLCPP_DEBUG(this->get_logger(), "Depth estimation time: %f ms", 
             std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
-
-        response->depth_map = *(cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", depth_map).toImageMsg());
-
         RCLCPP_INFO(this->get_logger(), "Depth estimation completed.");
     }
 

@@ -1,0 +1,4 @@
+std_msgs/FloatMultiArray distances
+std_msgs/Int32MultiArray img_idx
+std_msgs/Int32MultiArray query_idx
+std_msgs/Int32MultiArray train_idx
