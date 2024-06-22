@@ -7,7 +7,7 @@
 #include "message_filters/sync_policies/approximate_time.h"
 
 #include "sensor_msgs/msg/image.hpp"
-#include "geometry_msgs/msg/Odometry.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 
 #include "vio_msgs/srv/depth_estimator.hpp"
 #include "vio_msgs/srv/feature_extractor.hpp"
@@ -19,6 +19,7 @@
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/Geometry>
 
 class StereoVONode : public rclcpp::Node
 {
@@ -50,7 +51,7 @@ private:
     bool depth_complete = true;
     bool feat_complete = true;
 
-    rclcpp::Publisher<geometry_msgs::msg::Odometry>::SharedPtr odometry_pub;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometry_pub;
 
     // Camera intrinsics
     struct CameraIntrinsics
@@ -91,18 +92,22 @@ private:
 
     void publishOdometry(const Eigen::Matrix4d &pose)
     {
-        geometry_msgs::msg::Odometry odometry_msg;
+        nav_msgs::msg::Odometry odometry_msg;
         odometry_msg.header.stamp = this->now();
 
-        odometry_msg.pose.pose.position.x = pose(0, 3);
-        odometry_msg.pose.pose.position.y = pose(1, 3);
-        odometry_msg.pose.pose.position.z = pose(2, 3);
+        // Convert to meters
+        odometry_msg.pose.pose.position.x = pose(0, 3) / 10000;
+        odometry_msg.pose.pose.position.y = pose(1, 3) / 10000;
+        odometry_msg.pose.pose.position.z = pose(2, 3) / 10000;
 
         Eigen::Quaterniond q(pose.block<3, 3>(0, 0));
         odometry_msg.pose.pose.orientation.x = q.x();
         odometry_msg.pose.pose.orientation.y = q.y();
         odometry_msg.pose.pose.orientation.z = q.z();
         odometry_msg.pose.pose.orientation.w = q.w();
+
+
+        RCLCPP_INFO_STREAM(this->get_logger(), "Estimated pose: " << std::endl << this->curr_pose.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
 
         this->odometry_pub->publish(odometry_msg);
     }
@@ -114,31 +119,50 @@ private:
         double fx = this->lcam_intrinsics.camera_matrix.at<double>(0, 0);
         double fy = this->lcam_intrinsics.camera_matrix.at<double>(1, 1);
 
-        // Calculate previous image 3D points
-        std::vector<cv::Point3f> pts_3d;
-        for (auto p : this->prev_img_kps)
+        std::vector<cv::Point3d> pts_3d;
+        std::vector<cv::Point2d> pts_2d;
+        for (cv::DMatch &m : this->good_matches)
         {
-            double z = this->curr_depth_map.at<float>(p.pt.y, p.pt.x);
-            double x = (p.pt.x - cx) * z / fx;
-            double y = (p.pt.y - cy) * z / fy;
+            // Calculate previous image 3D point
+            cv::Point2d p = this->prev_img_kps[m.trainIdx].pt;
+            // Needs to use uchar because depth map is mono8 image
+            int z = static_cast<int>(this->curr_depth_map.at<uchar>(p.y, p.x)); 
+            double x = (p.x - cx) * z / fx;
+            double y = (p.y - cy) * z / fy;
+
+            // RCLCPP_INFO_STREAM(this->get_logger(), "Points: " << x << ", " << y << ", " << z << " | " << p.x << ", " << p.y << " | " << m.queryIdx << ", " << m.trainIdx << " | " << m.distance << " | " << m.imgIdx << " | " << m.queryIdx);
 
             pts_3d.push_back(cv::Point3f(x, y, z));
+            
+            // Get current image 2D point
+            pts_2d.push_back(this->curr_img_kps[m.queryIdx].pt);
         }
 
         // Solve PnP
-        cv::Mat rvec, tvec;        
-        cv::solvePnPRansac(pts_3d, this->curr_img_kps, this->lcam_intrinsics.camera_matrix, this->lcam_intrinsics.dist_coeffs, rvec, tvec);
+        if ((pts_3d.size() < 6) || (pts_3d.size() != pts_2d.size()))
+        {
+            RCLCPP_WARN(this->get_logger(), "Insufficient points for PnP estimation.");
+            return;
+        }
 
-        // Convert to transformation matrix
-        cv::Mat R;
+        RCLCPP_INFO(this->get_logger(), "Estimating motion. Points: %d", pts_3d.size());
+        cv::Mat rvec, tvec, R;        
+        try {
+            cv::solvePnPRansac(pts_3d, pts_2d, this->lcam_intrinsics.camera_matrix, this->lcam_intrinsics.dist_coeffs, rvec, tvec);
+        } catch (cv::Exception &e) {
+            RCLCPP_ERROR(this->get_logger(), "PnP failed: %s", e.what());
+            return;
+        }
         cv::Rodrigues(rvec, R);
+
+        // Convert to Transformation matrix and update current pose
         Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
         T.block<3, 3>(0, 0) = Eigen::Map<Eigen::Matrix3d>(R.ptr<double>());
-        T.block<3, 1>(0, 3) = Eigen::Map<Eigen::Vector3d>(tvec.ptr<double>());
+        T(0, 3) = tvec.at<double>(0);
+        T(1, 3) = tvec.at<double>(1);
+        T(2, 3) = tvec.at<double>(2);
 
-        this->curr_pose = this->curr_pose.dot(T);
-
-        RCLCPP_INFO(this->get_logger(), "Estimated pose: \n%s", this->curr_pose.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")).c_str());
+        this->curr_pose *= T;
 
         this->publishOdometry(this->curr_pose);
     }
@@ -179,14 +203,20 @@ private:
             auto response = future.get();
             
             cv::Mat curr_img_desc = OpenCVConversions::toCvImage(response->curr_img_desc);
-            this->curr_img_kps = OpenCVConversions::toCvKeyPoints(response->curr_keypoints);
+            this->curr_img_kps = OpenCVConversions::toCvKeyPoints(response->curr_img_kps);
             this->good_matches = OpenCVConversions::toCvDMatches(response->good_matches);
 
-            if (this->enable_viz && !(this->prev_img.empty() || this->curr_img.empty()))
+            if (this->enable_viz && !(this->prev_img.empty() || this->curr_img.empty()) && (this->good_matches.size() > 0))
             {
                 cv::Mat feat_img;
-                cv::drawMatches(this->prev_img, this->prev_img_kps, this->curr_img, curr_img_kps, good_matches, feat_img, cv::Scalar::all(-1), cv::Scalar::all(-1), std::vector<char>(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
-                this->feature_map_pub->publish(OpenCVConversions::toRosImage(feat_img));
+                try
+                {
+                    cv::drawMatches(this->prev_img, this->prev_img_kps, this->curr_img, this->curr_img_kps, this->good_matches, feat_img, cv::Scalar::all(-1), cv::Scalar::all(-1), std::vector<char>(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+                } catch (cv::Exception &e) {
+                    RCLCPP_ERROR(this->get_logger(), "Draw matches failed: %s", e.what());
+                }
+                
+                this->feature_map_pub->publish(OpenCVConversions::toRosImage(feat_img, "bgr8"));
             }
 
             if (this->depth_complete)
@@ -215,8 +245,8 @@ private:
         RCLCPP_INFO(this->get_logger(), "Received stereo image message. Size: %dx%d", lcam_msg->width, lcam_msg->height);
 
         // Undistort images
-        cv::Mat rect_limg = this->undistortImage(OpenCVConversions::toCvImage(lcam_msg), this->lcam_intrinsics);
-        cv::Mat rect_rimg = this->undistortImage(OpenCVConversions::toCvImage(rcam_msg), this->rcam_intrinsics);
+        cv::Mat rect_limg = this->undistortImage(OpenCVConversions::toCvImage(*lcam_msg), this->lcam_intrinsics);
+        cv::Mat rect_rimg = this->undistortImage(OpenCVConversions::toCvImage(*rcam_msg), this->rcam_intrinsics);
 
         // Update image variables
         this->prev_img = this->curr_img;
@@ -292,7 +322,7 @@ public:
             this->feature_map_pub = this->create_publisher<sensor_msgs::msg::Image>(feature_viz_topic, 10);
         }
 
-        this->odometry_pub = this->create_publisher<geometry_msgs::msg::Odometry>(odometry_topic, 10);
+        this->odometry_pub = this->create_publisher<nav_msgs::msg::Odometry>(odometry_topic, 10);
 
         RCLCPP_INFO(this->get_logger(), "Stereo visual odometry node started.");
     }

@@ -18,7 +18,7 @@ find_package(rclpy REQUIRED)
 # Messages
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(vio_msgs REQUIRED)
 
 # OpenCV dependencies
@@ -29,7 +29,7 @@ find_package(cv_bridge REQUIRED)
 
 # Add stereo_vo_node
 add_executable(stereo_vo_node src/stereo_vo_node.cpp)
-ament_target_dependencies(stereo_vo_node rclcpp message_filters sensor_msgs vio_msgs OpenCV cv_bridge)
+ament_target_dependencies(stereo_vo_node rclcpp message_filters sensor_msgs vio_msgs nav_msgs OpenCV cv_bridge)
 target_link_libraries(stereo_vo_node ${OpenCV_LIBS})
 install(TARGETS
   stereo_vo_node

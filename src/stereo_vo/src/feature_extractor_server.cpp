@@ -80,7 +80,7 @@ private:
 
         // Convert to ros message
         response->curr_img_desc = OpenCVConversions::toRosImage(curr_img_desc);
-        response->curr_img_kp = OpenCVConversions::toRosKeyPoints(curr_img_kp);
+        response->curr_img_kps = OpenCVConversions::toRosKeyPoints(curr_img_kp);
         response->good_matches = OpenCVConversions::toRosDMatches(good_matches);
 
         auto estimation_end = std::chrono::high_resolution_clock::now();
