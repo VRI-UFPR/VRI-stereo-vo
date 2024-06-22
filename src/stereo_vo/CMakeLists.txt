@@ -18,6 +18,7 @@ find_package(rclpy REQUIRED)
 # Messages
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(vio_msgs REQUIRED)
 
 # OpenCV dependencies

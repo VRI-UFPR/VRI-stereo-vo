@@ -24,6 +24,8 @@ sensors:
 
 stereo_vo:
 
+  odom_topic: "/stereo_vo/odom"
+
   debug_visualization: 1
   depth_map_viz: "/stereo_vo/depth_map_viz"
   feature_viz: "/stereo_vo/feature_viz"

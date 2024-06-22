@@ -7,6 +7,7 @@
 #include "message_filters/sync_policies/approximate_time.h"
 
 #include "sensor_msgs/msg/image.hpp"
+#include "geometry_msgs/msg/Odometry.hpp"
 
 #include "vio_msgs/srv/depth_estimator.hpp"
 #include "vio_msgs/srv/feature_extractor.hpp"
@@ -23,13 +24,14 @@ class StereoVONode : public rclcpp::Node
 {
 private:
 
-    bool depth_complete = true;
-    bool feat_complete = true;
+    Eigen::Matrix4d curr_pose = Eigen::Matrix4d::Identity();
 
+    // Stereo vo state variables
     cv::Mat curr_img = cv::Mat(), prev_img = cv::Mat();
     cv::Mat prev_img_desc = cv::Mat();
     cv::Mat curr_depth_map = cv::Mat();
-    std::vector<cv::KeyPoint> prev_img_kps;
+    std::vector<cv::KeyPoint> prev_img_kps, curr_img_kps;
+    std::vector<cv::DMatch> good_matches;
     
     // Subscribers and time synchronizer
     message_filters::Subscriber<sensor_msgs::msg::Image> lcam_sub;
@@ -45,6 +47,10 @@ private:
     // Clients
     rclcpp::Client<vio_msgs::srv::DepthEstimator>::SharedPtr depth_estimator_client;
     rclcpp::Client<vio_msgs::srv::FeatureExtractor>::SharedPtr feature_extractor_client;
+    bool depth_complete = true;
+    bool feat_complete = true;
+
+    rclcpp::Publisher<geometry_msgs::msg::Odometry>::SharedPtr odometry_pub;
 
     // Camera intrinsics
     struct CameraIntrinsics
@@ -75,17 +81,66 @@ private:
         }
     }
 
-    sensor_msgs::msg::Image::SharedPtr undistortImage(const cv::Mat &img, const CameraIntrinsics &intrinsics)
+    cv::Mat undistortImage(const cv::Mat &img, const CameraIntrinsics &intrinsics)
     {
         cv::Mat undistorted_img;
         cv::undistort(img, undistorted_img, intrinsics.camera_matrix, intrinsics.dist_coeffs);
 
-        return cv_bridge::CvImage(msg->header, "mono8", undistorted_img).toImageMsg();
+        return undistorted_img;
     }
 
-    void computeOpticalFlow()
+    void publishOdometry(const Eigen::Matrix4d &pose)
     {
-        // TODO: Implement optical flow computation
+        geometry_msgs::msg::Odometry odometry_msg;
+        odometry_msg.header.stamp = this->now();
+
+        odometry_msg.pose.pose.position.x = pose(0, 3);
+        odometry_msg.pose.pose.position.y = pose(1, 3);
+        odometry_msg.pose.pose.position.z = pose(2, 3);
+
+        Eigen::Quaterniond q(pose.block<3, 3>(0, 0));
+        odometry_msg.pose.pose.orientation.x = q.x();
+        odometry_msg.pose.pose.orientation.y = q.y();
+        odometry_msg.pose.pose.orientation.z = q.z();
+        odometry_msg.pose.pose.orientation.w = q.w();
+
+        this->odometry_pub->publish(odometry_msg);
+    }
+
+    void motionEstimation()
+    {
+        double cx = this->lcam_intrinsics.camera_matrix.at<double>(0, 2);
+        double cy = this->lcam_intrinsics.camera_matrix.at<double>(1, 2);
+        double fx = this->lcam_intrinsics.camera_matrix.at<double>(0, 0);
+        double fy = this->lcam_intrinsics.camera_matrix.at<double>(1, 1);
+
+        // Calculate previous image 3D points
+        std::vector<cv::Point3f> pts_3d;
+        for (auto p : this->prev_img_kps)
+        {
+            double z = this->curr_depth_map.at<float>(p.pt.y, p.pt.x);
+            double x = (p.pt.x - cx) * z / fx;
+            double y = (p.pt.y - cy) * z / fy;
+
+            pts_3d.push_back(cv::Point3f(x, y, z));
+        }
+
+        // Solve PnP
+        cv::Mat rvec, tvec;        
+        cv::solvePnPRansac(pts_3d, this->curr_img_kps, this->lcam_intrinsics.camera_matrix, this->lcam_intrinsics.dist_coeffs, rvec, tvec);
+
+        // Convert to transformation matrix
+        cv::Mat R;
+        cv::Rodrigues(rvec, R);
+        Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+        T.block<3, 3>(0, 0) = Eigen::Map<Eigen::Matrix3d>(R.ptr<double>());
+        T.block<3, 1>(0, 3) = Eigen::Map<Eigen::Vector3d>(tvec.ptr<double>());
+
+        this->curr_pose = this->curr_pose.dot(T);
+
+        RCLCPP_INFO(this->get_logger(), "Estimated pose: \n%s", this->curr_pose.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")).c_str());
+
+        this->publishOdometry(this->curr_pose);
     }
 
     void depth_callback(rclcpp::Client<vio_msgs::srv::DepthEstimator>::SharedFuture future) {
@@ -104,7 +159,7 @@ private:
 
             if (this->feat_complete)
             {
-                this->computeOpticalFlow();
+                this->motionEstimation();
             }
 
             this->depth_complete = true;
@@ -124,8 +179,8 @@ private:
             auto response = future.get();
             
             cv::Mat curr_img_desc = OpenCVConversions::toCvImage(response->curr_img_desc);
-            std::vector<cv::KeyPoint> curr_img_kps = OpenCVConversions::toCvKeyPoints(response->curr_keypoints);
-            std::vector<cv::DMatch> good_matches = OpenCVConversions::toCvDMatches(response->good_matches);
+            this->curr_img_kps = OpenCVConversions::toCvKeyPoints(response->curr_keypoints);
+            this->good_matches = OpenCVConversions::toCvDMatches(response->good_matches);
 
             if (this->enable_viz && !(this->prev_img.empty() || this->curr_img.empty()))
             {
@@ -136,7 +191,7 @@ private:
 
             if (this->depth_complete)
             {
-                this->computeOpticalFlow();
+                this->motionEstimation();
             }
             
             this->prev_img_desc = curr_img_desc;
@@ -197,7 +252,7 @@ public:
         RCLCPP_INFO(this->get_logger(), "Starting stereo visual odometry...");
 
         // Parse config
-        std::string stereo_img_topic;
+        std::string stereo_img_topic, odometry_topic;
         std::string lcam_topic, rcam_topic;
         std::string rcam_intrinsics_file, lcam_intrinsics_file;
         std::string depth_estimator_service, feature_extractor_service;
@@ -213,6 +268,7 @@ public:
         vo_config["debug_visualization"] >> this->enable_viz;
         vo_config["depth_map_viz"] >> depth_map_viz_topic;
         vo_config["feature_viz"] >> feature_viz_topic;
+        vo_config["odom_topic"] >> odometry_topic;
         fs.release();
 
         // Load camera intrinsics
@@ -235,6 +291,8 @@ public:
             this->depth_map_pub = this->create_publisher<sensor_msgs::msg::Image>(depth_map_viz_topic, 10);
             this->feature_map_pub = this->create_publisher<sensor_msgs::msg::Image>(feature_viz_topic, 10);
         }
+
+        this->odometry_pub = this->create_publisher<geometry_msgs::msg::Odometry>(odometry_topic, 10);
 
         RCLCPP_INFO(this->get_logger(), "Stereo visual odometry node started.");
     }
