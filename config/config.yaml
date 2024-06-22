@@ -31,18 +31,22 @@ stereo_vo:
   feature_viz: "/stereo_vo/feature_viz"
 
   left_cam:
-    topic: "/sensors/imx_left/image_raw"
-    intrinsics_file: "/workspace/config/imx_left_intrinsics.yaml"
+    # topic: "/sensors/imx_left/image_raw"
+    # intrinsics_file: "/workspace/config/imx_left_intrinsics.yaml"
+    topic: "/cam0/image_raw"
+    intrinsics_file: "/workspace/config/euroc_0_intrinsics.yaml"
 
   right_cam:
-    topic: "/sensors/imx_right/image_raw"
-    intrinsics_file: "/workspace/config/imx_right_intrinsics.yaml"
+    # topic: "/sensors/imx_right/image_raw"
+    # intrinsics_file: "/workspace/config/imx_right_intrinsics.yaml"
+    topic: "/cam1/image_raw"
+    intrinsics_file: "/workspace/config/euroc_1_intrinsics.yaml"
 
   depth_estimator_params:
     depth_estimator_service: "/stereo_vo/depth_estimation"
     
     image_size:
-      width: 640
+      width: 752
       height: 480
 
     depth_algorithm: "cuda_bm"  # stereo_bm, stereo_sgbm, cuda_bm, belief_propagation, constant_space_bp
@@ -50,7 +54,7 @@ stereo_vo:
     # Set to -1 to use default/recommended values by OpenCV 
     # (refer to https://docs.opencv.org/3.4/d2/d6e/classcv_1_1StereoMatcher.html)
     num_disparities: 32
-    block_size: 21  # Must be odd
+    block_size: 23  # Must be odd
     iterations: 3
     levels: 3
     nr_plane: 4
