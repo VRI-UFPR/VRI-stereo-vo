@@ -46,15 +46,17 @@ stereo_vo:
     depth_estimator_service: "/stereo_vo/depth_estimation"
     
     image_size:
+      # width: 640
+      # height: 480
       width: 752
       height: 480
 
-    depth_algorithm: "cuda_bm"  # stereo_bm, stereo_sgbm, cuda_bm, belief_propagation, constant_space_bp
+    depth_algorithm: "stereo_sgbm"  # stereo_bm, stereo_sgbm, cuda_bm, belief_propagation, constant_space_bp
     # Algorithm specific parameters
     # Set to -1 to use default/recommended values by OpenCV 
     # (refer to https://docs.opencv.org/3.4/d2/d6e/classcv_1_1StereoMatcher.html)
-    num_disparities: 32
-    block_size: 23  # Must be odd
+    num_disparities: 96
+    block_size: 7  # Must be odd
     iterations: 3
     levels: 3
     nr_plane: 4

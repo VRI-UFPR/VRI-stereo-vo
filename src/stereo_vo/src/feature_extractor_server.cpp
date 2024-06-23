@@ -50,7 +50,7 @@ private:
         // As per Lowe's ratio test
         for (size_t i = 0; i < matches.size(); i++)
         {
-            if (matches[i][0].distance < 0.8 * matches[i][1].distance)
+            if (matches[i][0].distance < 0.70 * matches[i][1].distance)
             {
                 good_matches.push_back(matches[i][0]);
             }
@@ -109,7 +109,7 @@ public:
         // Initialize feature extractor
         this->orb_detector = cv::cuda::ORB::create();
         this->matcher = cv::cuda::DescriptorMatcher::createBFMatcher(cv::NORM_HAMMING);
-        this->matcher->train();
+        // this->matcher->train();
 
         RCLCPP_INFO(this->get_logger(), "Feature extractor server started.");
     }

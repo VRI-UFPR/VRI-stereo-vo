@@ -13,6 +13,56 @@
 
 namespace OpenCVConversions
 {
+    class CameraIntrinsics
+    {
+    private:
+        cv::Mat camera_matrix, dist_coeffs, rot_matrix, tl_vector;
+    public:
+        CameraIntrinsics() {}
+
+        CameraIntrinsics(const std::string &intrinsics_file) 
+        {
+            cv::FileStorage fs(intrinsics_file, cv::FileStorage::READ);
+            fs["K"] >> this->camera_matrix;
+            fs["D"] >> this->dist_coeffs;
+
+            cv::Mat body_T_cam;
+            fs["body_T_cam"] >> body_T_cam;
+            fs.release();
+
+            this->rot_matrix = body_T_cam.rowRange(0, 3).colRange(0, 3);
+            this->tl_vector = body_T_cam.rowRange(0, 3).col(3);
+        }
+
+        // Copy constructor
+        CameraIntrinsics& operator=(const CameraIntrinsics &other)
+        {
+            this->camera_matrix = other.camera_matrix.clone();
+            this->dist_coeffs = other.dist_coeffs.clone();
+            this->rot_matrix = other.rot_matrix.clone();
+            this->tl_vector = other.tl_vector.clone();
+
+            return *this;
+        }
+
+        cv::Mat undistortImage(const cv::Mat &img)
+        {
+            cv::Mat undistorted_img;
+            cv::undistort(img, undistorted_img, this->camera_matrix, this->dist_coeffs);
+
+            return undistorted_img;
+        }
+
+        // Getters
+        double fx() const { return this->camera_matrix.at<double>(0, 0); }
+        double fy() const { return this->camera_matrix.at<double>(1, 1); }
+        double cx() const { return this->camera_matrix.at<double>(0, 2); }
+        double cy() const { return this->camera_matrix.at<double>(1, 2); }
+        cv::Mat cameraMatrix() const { return this->camera_matrix; }
+        cv::Mat distCoeffs() const { return this->dist_coeffs; }
+        cv::Mat rotMatrix() const { return this->rot_matrix; }
+        cv::Mat tlVector() const { return this->tl_vector; }
+    };
 
     vio_msgs::msg::KeyPoints toRosKeyPoints(const std::vector<cv::KeyPoint> &keypoints)
     {

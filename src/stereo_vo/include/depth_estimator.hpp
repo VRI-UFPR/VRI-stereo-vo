@@ -3,6 +3,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/cudastereo.hpp>
+#include "opencv_conversions.hpp"
 
 class DepthEstimator
 {
@@ -12,6 +13,7 @@ private:
     bool using_cuda = false;
     bool initialized = false;
     cv::Size img_size{0, 0};
+    OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
 
     void initStereoBM(const int ndisp, const int block_size);
     void initStereoSGBM(const int ndisp, const int block_size);
@@ -21,7 +23,7 @@ private:
 
 public:
     DepthEstimator() {};
-    DepthEstimator(const cv::FileNode &config);
+    DepthEstimator(const cv::FileNode &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file);
 
     cv::Mat compute(const cv::Mat &img_left, const cv::Mat &img_right);
 };
@@ -41,7 +43,7 @@ void DepthEstimator::initStereoSGBM(const int ndisp, const int block_size)
     int _ndisp = (ndisp > 0) ? ndisp : 16;
     int _block_size = (block_size > 0) ? block_size : 3;
 
-    this->stereo_matcher = cv::StereoSGBM::create(0, _ndisp, _block_size);
+    this->stereo_matcher = cv::StereoSGBM::create(0, _ndisp, _block_size, 8 * _block_size * _block_size, 32 * _block_size * _block_size, 1, 63, 10, 100, 32, cv::StereoSGBM::MODE_SGBM_3WAY);
 
     this->initialized = true;
 }
@@ -91,7 +93,7 @@ void DepthEstimator::initConstantSpaceBP(const cv::Size im_size, const int ndisp
     this->using_cuda = true;
 }
 
-DepthEstimator::DepthEstimator(const cv::FileNode &config)
+DepthEstimator::DepthEstimator(const cv::FileNode &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file)
 {
     std::string algorithm = config["depth_algorithm"];
 
@@ -102,6 +104,9 @@ DepthEstimator::DepthEstimator(const cv::FileNode &config)
     int iter = config["iterations"];
     int levels = config["levels"];
     int nr_plane = config["nr_plane"];
+
+    this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
+    this->rcam_intrinsics = OpenCVConversions::CameraIntrinsics(rcam_intrinsics_file);
 
     std::cout << "[Depth Estimator] Using '" << algorithm << "'." << std::endl;
 
@@ -124,24 +129,37 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
         return cv::Mat(this->img_size, 0);
     }
 
-    cv::Mat depth_map;
+    cv::Mat disparity_map;
     
     if (this->using_cuda)
     {
-        cv::cuda::GpuMat img_left_gpu, img_right_gpu, depth_map_gpu;
+        cv::cuda::GpuMat img_left_gpu, img_right_gpu, disparity_map_gpu;
 
         // Upload images to GPU
         img_left_gpu.upload(img_left);
         img_right_gpu.upload(img_right);
 
         // Compute disparity map
-        stereo_matcher->compute(img_left_gpu, img_right_gpu, depth_map_gpu);
+        stereo_matcher->compute(img_left_gpu, img_right_gpu, disparity_map_gpu);
 
         // Download depth map
-        depth_map_gpu.download(depth_map);
+        disparity_map_gpu.download(disparity_map);
     } else {
-        stereo_matcher->compute(img_left, img_right, depth_map);
+        stereo_matcher->compute(img_left, img_right, disparity_map);
     }
+
+    // Normalize
+    disparity_map.convertTo(disparity_map, CV_32F);
+    disparity_map /= 16.0;
+
+    double lfx = this->lcam_intrinsics.fx();
+    double baseline = this->lcam_intrinsics.tlVector().at<double>(1);
+
+    cv::Mat mask = (disparity_map == 0.0) & (disparity_map == -1.0);
+    disparity_map.setTo(0.1, mask);
+
+    cv::Mat depth_map = cv::Mat::ones(disparity_map.size(), CV_32F);
+    depth_map = (lfx * baseline) / disparity_map;
 
     return depth_map;
 }

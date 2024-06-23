@@ -37,14 +37,13 @@ private:
         cv::Mat depth_map = this->depth_estimator->compute(img_left, img_right);
 
         // Normalize
-        cv::normalize(depth_map, depth_map, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        // cv::normalize(depth_map, depth_map, 0, 255, cv::NORM_MINMAX, CV_8UC1);
 
         response->depth_map = OpenCVConversions::toRosImage(depth_map, "mono8");
 
         auto estimation_end = std::chrono::high_resolution_clock::now();
-        RCLCPP_DEBUG(this->get_logger(), "Depth estimation time: %f ms", 
+        RCLCPP_INFO(this->get_logger(), "Depth estimation time: %f ms", 
             std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
-        RCLCPP_INFO(this->get_logger(), "Depth estimation completed.");
     }
 
 public:
@@ -56,6 +55,8 @@ public:
         cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
         cv::FileNode de_config = fs["stereo_vo"]["depth_estimator_params"];
         std::string depth_estimator_service = de_config["depth_estimator_service"].string();
+        std::string lcam_intrinsics_file = fs["stereo_vo"]["left_cam"]["intrinsics_file"].string();
+        std::string rcam_intrinsics_file = fs["stereo_vo"]["right_cam"]["intrinsics_file"].string();
 
         // Initialize service
         this->depth_server = this->create_service<vio_msgs::srv::DepthEstimator>(depth_estimator_service, 
@@ -63,7 +64,7 @@ public:
 
         // Initialize depth estimator
         std::string de_algorithm = de_config["depth_algorithm"];
-        this->depth_estimator = std::make_shared<DepthEstimator>(de_config);
+        this->depth_estimator = std::make_shared<DepthEstimator>(de_config, lcam_intrinsics_file, rcam_intrinsics_file);
         
         fs.release();
 

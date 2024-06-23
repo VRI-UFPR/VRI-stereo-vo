@@ -54,22 +54,7 @@ private:
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometry_pub;
 
     // Camera intrinsics
-    struct CameraIntrinsics
-    {
-        cv::Mat camera_matrix;
-        cv::Mat dist_coeffs;
-    } lcam_intrinsics, rcam_intrinsics; 
-
-
-    void loadCameraIntrinsics(const std::string &intrinsics_file, CameraIntrinsics &intrinsics)
-    {
-        RCLCPP_INFO(this->get_logger(), "Loading camera intrinsics from file: %s", intrinsics_file.c_str());
-
-        cv::FileStorage fs(intrinsics_file, cv::FileStorage::READ);
-        fs["K"] >> intrinsics.camera_matrix;
-        fs["D"] >> intrinsics.dist_coeffs;
-        fs.release();
-    }
+    OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
 
     void waitForService(rclcpp::ClientBase::SharedPtr client)
     {
@@ -80,14 +65,6 @@ private:
             }
             RCLCPP_INFO(this->get_logger(), "Service not available, waiting again...");
         }
-    }
-
-    cv::Mat undistortImage(const cv::Mat &img, const CameraIntrinsics &intrinsics)
-    {
-        cv::Mat undistorted_img;
-        cv::undistort(img, undistorted_img, intrinsics.camera_matrix, intrinsics.dist_coeffs);
-
-        return undistorted_img;
     }
 
     void publishOdometry(const Eigen::Matrix4d &pose)
@@ -114,10 +91,10 @@ private:
 
     void motionEstimation()
     {
-        double cx = this->lcam_intrinsics.camera_matrix.at<double>(0, 2);
-        double cy = this->lcam_intrinsics.camera_matrix.at<double>(1, 2);
-        double fx = this->lcam_intrinsics.camera_matrix.at<double>(0, 0);
-        double fy = this->lcam_intrinsics.camera_matrix.at<double>(1, 1);
+        double cx = this->lcam_intrinsics.cx();
+        double cy = this->lcam_intrinsics.cy();
+        double fx = this->lcam_intrinsics.fx();
+        double fy = this->lcam_intrinsics.fy();
 
         std::vector<cv::Point3d> pts_3d;
         std::vector<cv::Point2d> pts_2d;
@@ -148,7 +125,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "Estimating motion. Points: %d", pts_3d.size());
         cv::Mat rvec, tvec, R;        
         try {
-            cv::solvePnPRansac(pts_3d, pts_2d, this->lcam_intrinsics.camera_matrix, this->lcam_intrinsics.dist_coeffs, rvec, tvec);
+            cv::solvePnPRansac(pts_3d, pts_2d, this->lcam_intrinsics.cameraMatrix(), this->lcam_intrinsics.distCoeffs(), rvec, tvec);
         } catch (cv::Exception &e) {
             RCLCPP_ERROR(this->get_logger(), "PnP failed: %s", e.what());
             return;
@@ -178,7 +155,9 @@ private:
 
             if (this->enable_viz)
             {
-                this->depth_map_pub->publish(response->depth_map);
+                cv::Mat depth_map_8u;
+                cv::normalize(this->curr_depth_map, depth_map_8u, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+                this->depth_map_pub->publish(OpenCVConversions::toRosImage(depth_map_8u, "mono8"));
             }
 
             if (this->feat_complete)
@@ -245,8 +224,8 @@ private:
         RCLCPP_INFO(this->get_logger(), "Received stereo image message. Size: %dx%d", lcam_msg->width, lcam_msg->height);
 
         // Undistort images
-        cv::Mat rect_limg = this->undistortImage(OpenCVConversions::toCvImage(*lcam_msg), this->lcam_intrinsics);
-        cv::Mat rect_rimg = this->undistortImage(OpenCVConversions::toCvImage(*rcam_msg), this->rcam_intrinsics);
+        cv::Mat rect_limg = this->lcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(*lcam_msg));
+        cv::Mat rect_rimg = this->rcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(*rcam_msg));
 
         // Update image variables
         this->prev_img = this->curr_img;
@@ -302,8 +281,8 @@ public:
         fs.release();
 
         // Load camera intrinsics
-        this->loadCameraIntrinsics(lcam_intrinsics_file, this->lcam_intrinsics);
-        this->loadCameraIntrinsics(rcam_intrinsics_file, this->rcam_intrinsics);
+        this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
+        this->rcam_intrinsics = OpenCVConversions::CameraIntrinsics(rcam_intrinsics_file);
 
         // Initialize subscribers and time synchronizer
         this->lcam_sub.subscribe(this, lcam_topic);
