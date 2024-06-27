@@ -150,7 +150,7 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
 
     // Normalize
     disparity_map.convertTo(disparity_map, CV_32F);
-    disparity_map /= 16.0;
+    // cv::normalize(disparity_map, disparity_map, 0, 255, cv::NORM_MINMAX, CV_32F);
 
     double lfx = this->lcam_intrinsics.fx();
     double baseline = this->lcam_intrinsics.tlVector().at<double>(1);

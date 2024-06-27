@@ -43,8 +43,14 @@ private:
 
     void readConfig(void)
     {
+        // Load config
+        std::string config_file;
+        this->declare_parameter("config_file", "/workspace/config/config_imx.yaml");
+        this->get_parameter("config_file", config_file);
+        RCLCPP_INFO_STREAM(this->get_logger(), "Loading config file: " << config_file);
+        cv::FileStorage fs(config_file, cv::FileStorage::READ);
+
         // Parse parameters
-        cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
         cv::FileNode cam_config = fs["sensors"]["cameras"]["devices"];
         this->cameras.resize(cam_config.size());
 

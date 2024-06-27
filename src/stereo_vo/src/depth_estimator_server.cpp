@@ -51,8 +51,14 @@ public:
     {
         RCLCPP_INFO(this->get_logger(), "Starting depth estimator server...");
 
+        // Load config
+        std::string config_file;
+        this->declare_parameter("config_file", "/workspace/config/config_imx.yaml");
+        this->get_parameter("config_file", config_file);
+        RCLCPP_INFO_STREAM(this->get_logger(), "Loading config file: " << config_file);
+        cv::FileStorage fs(config_file, cv::FileStorage::READ);
+        
         // Parse parameters
-        cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
         cv::FileNode de_config = fs["stereo_vo"]["depth_estimator_params"];
         std::string depth_estimator_service = de_config["depth_estimator_service"].string();
         std::string lcam_intrinsics_file = fs["stereo_vo"]["left_cam"]["intrinsics_file"].string();

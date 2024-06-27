@@ -23,7 +23,11 @@ class BnoPublisher(Node):
         self.logger.info('Initializing imu sensor node...')
 
         # load config
-        fs = cv2.FileStorage("/workspace/config/config.yaml", cv2.FileStorage_READ)
+        config_file = self.declare_parameter('config_file', '/workspace/config/config_imx.yaml').value
+        self.logger.info(f"Loading config file: {config_file}")
+        fs = cv2.FileStorage(config_file, cv2.FileStorage_READ)
+
+        # parse imu config
         imu_config = fs.getNode("sensors").getNode("imu")
         topic = imu_config.getNode("topic").string()
         sample_rate = int(imu_config.getNode("sample_rate").real())

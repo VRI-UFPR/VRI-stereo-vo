@@ -95,11 +95,16 @@ public:
     {
         RCLCPP_INFO(this->get_logger(), "Starting feature extractor server...");
 
+        // Load config
+        std::string config_file;
+        this->declare_parameter("config_file", "/workspace/config/config_imx.yaml");
+        this->get_parameter("config_file", config_file);
+        RCLCPP_INFO_STREAM(this->get_logger(), "Loading config file: " << config_file);
+        cv::FileStorage fs(config_file, cv::FileStorage::READ);
+
         // Parse parameters
-        std::string feature_extractor_service; 
-        cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
         cv::FileNode vo_config = fs["stereo_vo"];
-        vo_config["feature_extractor_service"] >> feature_extractor_service;
+        std::string feature_extractor_service = vo_config["feature_extractor_service"].string();
         fs.release();
 
         // Initialize service

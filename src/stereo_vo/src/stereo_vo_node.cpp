@@ -33,12 +33,15 @@ private:
     cv::Mat curr_depth_map = cv::Mat();
     std::vector<cv::KeyPoint> prev_img_kps, curr_img_kps;
     std::vector<cv::DMatch> good_matches;
+
+    bool estimate_depth = true;
     
     // Subscribers and time synchronizer
     message_filters::Subscriber<sensor_msgs::msg::Image> lcam_sub;
     message_filters::Subscriber<sensor_msgs::msg::Image> rcam_sub;
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> cam_sync;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_subscriber;
 
     // Visualization publishers
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_map_pub;
@@ -173,6 +176,25 @@ private:
         }
     }
 
+    void depth_subs_callback(const sensor_msgs::msg::Image::ConstSharedPtr &depth_msg)
+    {
+        if (!this->feat_complete)
+        {
+            return;
+        }
+
+        RCLCPP_INFO(this->get_logger(), "Received depth image message. Size: %dx%d", depth_msg->width, depth_msg->height);
+
+        this->curr_depth_map = OpenCVConversions::toCvImage(*depth_msg, "");
+
+        if (this->feat_complete)
+        {
+            this->motionEstimation();
+        }
+
+        this->depth_complete = true;
+    }
+
     void feature_callback(rclcpp::Client<vio_msgs::srv::FeatureExtractor>::SharedFuture future) {
         auto status = future.wait_for(std::chrono::seconds(1));
         if (status == std::future_status::ready) 
@@ -236,13 +258,16 @@ private:
         sensor_msgs::msg::Image rect_rimg_msg = OpenCVConversions::toRosImage(rect_rimg);
 
         // Depth estimation request
-        auto depth_estimator_request = std::make_shared<vio_msgs::srv::DepthEstimator::Request>();
-        depth_estimator_request->left_image = rect_limg_msg;
-        depth_estimator_request->right_image = rect_rimg_msg;
-        waitForService(this->depth_estimator_client);
-        this->depth_estimator_client->async_send_request(depth_estimator_request, std::bind(&StereoVONode::depth_callback, this, std::placeholders::_1));
+        if (this->estimate_depth)
+        {
+            auto depth_estimator_request = std::make_shared<vio_msgs::srv::DepthEstimator::Request>();
+            depth_estimator_request->left_image = rect_limg_msg;
+            depth_estimator_request->right_image = rect_rimg_msg;
+            waitForService(this->depth_estimator_client);
+            this->depth_estimator_client->async_send_request(depth_estimator_request, std::bind(&StereoVONode::depth_callback, this, std::placeholders::_1));
+            RCLCPP_INFO(this->get_logger(), "Depth estimation request sent.");
+        }
         this->depth_complete = false;
-        RCLCPP_INFO(this->get_logger(), "Depth estimation request sent.");
 
         // Feature matching request
         auto feature_extractor_request = std::make_shared<vio_msgs::srv::FeatureExtractor::Request>();
@@ -260,14 +285,20 @@ public:
     {
         RCLCPP_INFO(this->get_logger(), "Starting stereo visual odometry...");
 
-        // Parse config
-        std::string stereo_img_topic, odometry_topic;
-        std::string lcam_topic, rcam_topic;
-        std::string rcam_intrinsics_file, lcam_intrinsics_file;
-        std::string depth_estimator_service, feature_extractor_service;
-        std::string depth_map_viz_topic, feature_viz_topic;
-        cv::FileStorage fs("/workspace/config/config.yaml", cv::FileStorage::READ);
+        // Load config
+        std::string config_file;
+        this->declare_parameter("config_file", "/workspace/config/config_imx.yaml");
+        this->get_parameter("config_file", config_file);
+        RCLCPP_INFO_STREAM(this->get_logger(), "Loading config file: " << config_file);
+        cv::FileStorage fs(config_file, cv::FileStorage::READ);
         cv::FileNode vo_config = fs["stereo_vo"];
+
+        // Parse config
+        std::string stereo_img_topic, odometry_topic, depth_topic,
+        lcam_topic, rcam_topic,
+        rcam_intrinsics_file, lcam_intrinsics_file,
+        depth_estimator_service, feature_extractor_service,
+        depth_map_viz_topic, feature_viz_topic;
         vo_config["left_cam"]["topic"] >> lcam_topic;
         vo_config["right_cam"]["topic"] >> rcam_topic;
         vo_config["left_cam"]["intrinsics_file"] >> lcam_intrinsics_file;
@@ -278,6 +309,8 @@ public:
         vo_config["depth_map_viz"] >> depth_map_viz_topic;
         vo_config["feature_viz"] >> feature_viz_topic;
         vo_config["odom_topic"] >> odometry_topic;
+        vo_config["estimate_depth"] >> this->estimate_depth;
+        vo_config["depth_topic"] >> depth_topic;
         fs.release();
 
         // Load camera intrinsics
@@ -292,7 +325,13 @@ public:
         this->cam_sync->registerCallback(std::bind(&StereoVONode::stereo_callback, this, std::placeholders::_1, std::placeholders::_2));
 
         // Intialize clients
-        this->depth_estimator_client = this->create_client<vio_msgs::srv::DepthEstimator>(depth_estimator_service);
+        if (this->estimate_depth)
+        {
+            this->depth_estimator_client = this->create_client<vio_msgs::srv::DepthEstimator>(depth_estimator_service);
+        } else {
+            this->depth_subscriber = this->create_subscription<sensor_msgs::msg::Image>(depth_topic, 10, std::bind(&StereoVONode::depth_subs_callback, this, std::placeholders::_1));
+        }
+
         this->feature_extractor_client = this->create_client<vio_msgs::srv::FeatureExtractor>(feature_extractor_service);
 
         if (this->enable_viz)

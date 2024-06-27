@@ -23,35 +23,32 @@ sensors:
           height: 480
 
 stereo_vo:
-
   odom_topic: "/stereo_vo/odom"
 
   debug_visualization: 1
   depth_map_viz: "/stereo_vo/depth_map_viz"
   feature_viz: "/stereo_vo/feature_viz"
 
+  estimate_depth: 1
+  depth_topic: "/camera/depth/image"
+
   left_cam:
-    # topic: "/sensors/imx_left/image_raw"
-    # intrinsics_file: "/workspace/config/imx_left_intrinsics.yaml"
-    topic: "/cam0/image_raw"
-    intrinsics_file: "/workspace/config/euroc_0_intrinsics.yaml"
+    topic: "/sensors/imx_left/image_raw"
+    intrinsics_file: "/workspace/config/imx_left_intrinsics.yaml"
 
   right_cam:
-    # topic: "/sensors/imx_right/image_raw"
-    # intrinsics_file: "/workspace/config/imx_right_intrinsics.yaml"
-    topic: "/cam1/image_raw"
-    intrinsics_file: "/workspace/config/euroc_1_intrinsics.yaml"
+    topic: "/sensors/imx_right/image_raw"
+    intrinsics_file: "/workspace/config/imx_right_intrinsics.yaml"
 
   depth_estimator_params:
     depth_estimator_service: "/stereo_vo/depth_estimation"
     
     image_size:
-      # width: 640
-      # height: 480
-      width: 752
+      width: 640
       height: 480
 
     depth_algorithm: "stereo_sgbm"  # stereo_bm, stereo_sgbm, cuda_bm, belief_propagation, constant_space_bp
+    
     # Algorithm specific parameters
     # Set to -1 to use default/recommended values by OpenCV 
     # (refer to https://docs.opencv.org/3.4/d2/d6e/classcv_1_1StereoMatcher.html)
