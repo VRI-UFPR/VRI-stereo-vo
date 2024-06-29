@@ -38,7 +38,7 @@ private:
         cuda_descriptors.download(descriptors);
     }
 
-    void int RobustMatcher::ratioTest(std::vector<std::vector<cv::DMatch> > &matches)
+    void ratioTest(std::vector<std::vector<cv::DMatch> > &matches)
     {
         // As per Lowe's ratio test
         for ( std::vector<std::vector<cv::DMatch> >::iterator matchIterator= matches.begin(); matchIterator!= matches.end(); ++matchIterator)
@@ -59,8 +59,7 @@ private:
 
     void symmetryTest(const std::vector<std::vector<cv::DMatch> >& matches1, const std::vector<std::vector<cv::DMatch> >& matches2, std::vector<cv::DMatch>& symMatches)
     {
-    // for all matches image 1 -> image 2
-        for (std::vector<std::vector<cv::DMatch> >::const_iterator matchIterator1 = matches1.begin(); matchIterator1 != matches1.end(); ++matchIterator1)
+        for (std::vector<std::vector<cv::DMatch>>::const_iterator matchIterator1 = matches1.begin(); matchIterator1 != matches1.end(); ++matchIterator1)
         {
             if (matchIterator1->empty() || matchIterator1->size() < 2)
                 continue;
@@ -73,7 +72,6 @@ private:
                 // Match symmetry test
                 if ((*matchIterator1)[0].queryIdx == (*matchIterator2)[0].trainIdx && (*matchIterator2)[0].queryIdx == (*matchIterator1)[0].trainIdx)
                 {
-                    // add symmetrical match
                     symMatches.push_back(cv::DMatch((*matchIterator1)[0].queryIdx, (*matchIterator1)[0].trainIdx, (*matchIterator1)[0].distance));
                     break;
                 }
@@ -86,14 +84,19 @@ private:
         std::vector<std::vector<cv::DMatch>> matches_pc, matches_cp;
 
         // Match features
-        this->matcher->knnMatch(prev_desc, curr_desc, matches_pc, 2);
-        this->matcher->knnMatch(curr_desc, prev_desc, matches_cp, 2);
+        if (curr_img_desc.empty() || prev_img_desc.empty())
+        {
+            return;
+        }
+
+        this->matcher->knnMatch(prev_img_desc, curr_img_desc, matches_pc, 2);
+        this->matcher->knnMatch(curr_img_desc, prev_img_desc, matches_cp, 2);
 
         // Remove matches per Lewe's ratio test
         this->ratioTest(matches_pc);
         this->ratioTest(matches_cp);
 
-        this->symetryTest(matches_pc, matches_cp, good_matches);    
+        this->symmetryTest(matches_pc, matches_cp, good_matches);    
     }
 
     void feature_callback(const std::shared_ptr<vio_msgs::srv::FeatureExtractor::Request> request,std::shared_ptr<vio_msgs::srv::FeatureExtractor::Response> response)

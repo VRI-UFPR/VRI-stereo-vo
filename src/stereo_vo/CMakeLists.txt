@@ -19,6 +19,7 @@ find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(vio_msgs REQUIRED)
 
 # OpenCV dependencies
@@ -49,6 +50,14 @@ ament_target_dependencies(feature_extractor_server rclcpp sensor_msgs vio_msgs O
 target_link_libraries(feature_extractor_server ${OpenCV_LIBS})
 install(TARGETS
   feature_extractor_server
+  DESTINATION lib/${PROJECT_NAME})
+
+# visualization_node
+add_executable(visualization_node src/visualization_node.cpp)
+ament_target_dependencies(visualization_node rclcpp nav_msgs visualization_msgs OpenCV)
+target_link_libraries( visualization_node ${OpenCV_LIBS} )
+install(TARGETS
+  visualization_node
   DESTINATION lib/${PROJECT_NAME})
 
 # Copy launch files

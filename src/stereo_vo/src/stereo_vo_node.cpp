@@ -76,9 +76,9 @@ private:
         odometry_msg.header.stamp = this->now();
 
         // Convert to meters
-        odometry_msg.pose.pose.position.x = pose(0, 3) / 10000;
-        odometry_msg.pose.pose.position.y = pose(1, 3) / 10000;
-        odometry_msg.pose.pose.position.z = pose(2, 3) / 10000;
+        odometry_msg.pose.pose.position.x = pose(0, 3);
+        odometry_msg.pose.pose.position.y = pose(1, 3);
+        odometry_msg.pose.pose.position.z = pose(2, 3);
 
         Eigen::Quaterniond q(pose.block<3, 3>(0, 0));
         odometry_msg.pose.pose.orientation.x = q.x();

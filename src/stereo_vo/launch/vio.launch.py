@@ -12,6 +12,7 @@ launch_args = [
     DeclareLaunchArgument(name="imu_enable", default_value="true", description="Enable IMU node"),
     DeclareLaunchArgument(name="vo_enable", default_value="true", description="Enable VO pose estimation"),
     DeclareLaunchArgument(name="estimate_depth", default_value="false", description="Run depth estimator server"),
+    DeclareLaunchArgument(name="enable_viz", default_value="true", description="Enable markers visualization"),
 
     # Bag arguments
     DeclareLaunchArgument(name="bag", default_value="true", description="Enable bag file"),
@@ -57,6 +58,14 @@ def launch_setup(context):
             package='stereo_vo',
             condition=IfCondition(LaunchConfiguration("vo_enable")),
             executable='feature_extractor_server',
+            parameters=[{'config_file' : config_file_path}],
+        ),
+
+        # Launch visualization
+        Node(
+            package='stereo_vo',
+            condition=IfCondition(LaunchConfiguration("enable_viz")),
+            executable='visualization_node',
             parameters=[{'config_file' : config_file_path}],
         ),
 
