@@ -12,7 +12,11 @@
 
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
-#include <opencv2/cudafeatures2d.hpp>
+
+#ifdef USE_CUDA
+    #include <opencv2/cudafeatures2d.hpp>
+#endif
+
 #include <opencv2/features2d.hpp>
 
 class FeatureExtractorServer : public rclcpp::Node
@@ -21,21 +25,30 @@ private:
 
     rclcpp::Service<vio_msgs::srv::FeatureExtractor>::SharedPtr feature_server;
 
-    cv::Ptr<cv::cuda::ORB> orb_detector;
+    #ifdef USE_CUDA
+        cv::Ptr<cv::cuda::ORB> orb_detector;
+    #else
+        cv::Ptr<cv::ORB> orb_detector;
+    #endif
+
     cv::Ptr<cv::DescriptorMatcher> matcher;
 
     void featureExtract(const cv::Mat &img, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
     {
-        // Upload to gpu
-        cv::cuda::GpuMat cuda_img;
-        cuda_img.upload(img);
+        #ifdef USE_CUDA
+            // Upload to gpu
+            cv::cuda::GpuMat cuda_img;
+            cuda_img.upload(img);
 
-        cv::cuda::GpuMat cuda_keypoints, cuda_descriptors;
-        this->orb_detector->detectAndComputeAsync(cuda_img, cv::cuda::GpuMat(), cuda_keypoints, cuda_descriptors);
+            cv::cuda::GpuMat cuda_keypoints, cuda_descriptors;
+            this->orb_detector->detectAndComputeAsync(cuda_img, cv::cuda::GpuMat(), cuda_keypoints, cuda_descriptors);
 
-        // Download from gpu
-        this->orb_detector->convert(cuda_keypoints, keypoints);
-        cuda_descriptors.download(descriptors);
+            // Download from gpu
+            this->orb_detector->convert(cuda_keypoints, keypoints);
+            cuda_descriptors.download(descriptors);
+        #else
+            this->orb_detector->detectAndCompute(img, cv::noArray(), keypoints, descriptors);
+        #endif
     }
 
     void ratioTest(std::vector<std::vector<cv::DMatch> > &matches)
@@ -153,7 +166,11 @@ public:
             std::bind(&FeatureExtractorServer::feature_callback, this, std::placeholders::_1, std::placeholders::_2));
 
         // Initialize feature extractor
-        this->orb_detector = cv::cuda::ORB::create();
+        #ifdef USE_CUDA
+            this->orb_detector = cv::cuda::ORB::create();
+        #else
+            this->orb_detector = cv::ORB::create();
+        #endif
 
         // instantiate LSH index parameters
         cv::Ptr<cv::flann::IndexParams> indexParams = cv::makePtr<cv::flann::LshIndexParams>(6, 12, 1); 

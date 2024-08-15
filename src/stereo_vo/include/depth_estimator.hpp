@@ -2,7 +2,11 @@
 #include <iostream>
 
 #include <opencv2/opencv.hpp>
-#include <opencv2/cudastereo.hpp>
+
+#ifdef USE_CUDA
+    #include <opencv2/cudastereo.hpp>
+#endif
+
 #include "opencv_conversions.hpp"
 
 class DepthEstimator
@@ -50,47 +54,65 @@ void DepthEstimator::initStereoSGBM(const int ndisp, const int block_size)
 
 void DepthEstimator::initCudaBM(const int ndisp, const int block_size)
 {
-    int _ndisp = (ndisp > 0) ? ndisp : 64;
-    int _block_size = (block_size > 0) ? block_size : 19;
+    #ifdef USE_CUDA
+        int _ndisp = (ndisp > 0) ? ndisp : 64;
+        int _block_size = (block_size > 0) ? block_size : 19;
 
-    this->stereo_matcher = cv::cuda::createStereoBM(_ndisp, _block_size);
+        this->stereo_matcher = cv::cuda::createStereoBM(_ndisp, _block_size);
 
-    this->initialized = true;
-    this->using_cuda = true;
+        this->initialized = true;
+        this->using_cuda = true;
+    #else
+        // Avoid warning
+        (void)ndisp; (void)block_size;
+        std::cerr << "[Depth Estimator] CUDA not enabled. Cannot use cuda stereo matcher." << std::endl;
+    #endif
 }
 
 
 void DepthEstimator::initBeliefPropagation(const cv::Size im_size, const int ndisp, const int iter, const int levels)
 {
-    // Estimate recommended parameters
-    int r_ndisp, r_iter, r_levels;
-    cv::cuda::StereoBeliefPropagation::estimateRecommendedParams(im_size.width, im_size.height, r_ndisp, r_iter, r_levels);
+    #ifdef USE_CUDA
+        // Estimate recommended parameters
+        int r_ndisp, r_iter, r_levels;
+        cv::cuda::StereoBeliefPropagation::estimateRecommendedParams(im_size.width, im_size.height, r_ndisp, r_iter, r_levels);
 
-    int _ndisp = (ndisp > 0) ? ndisp : r_ndisp;
-    int _iter = (iter > 0) ? iter : r_iter;
-    int _levels = (levels > 0) ? levels : r_levels;
+        int _ndisp = (ndisp > 0) ? ndisp : r_ndisp;
+        int _iter = (iter > 0) ? iter : r_iter;
+        int _levels = (levels > 0) ? levels : r_levels;
 
-    this->stereo_matcher = cv::cuda::createStereoBeliefPropagation(_ndisp, _iter, _levels, CV_16SC1);
+        this->stereo_matcher = cv::cuda::createStereoBeliefPropagation(_ndisp, _iter, _levels, CV_16SC1);
 
-    this->initialized = true;
-    this->using_cuda = true;
+        this->initialized = true;
+        this->using_cuda = true;
+    #else
+        // Avoid warning
+        (void)im_size; (void)ndisp; (void)iter; (void)levels;
+        std::cerr << "[Depth Estimator] CUDA not enabled. Cannot use cuda stereo matcher." << std::endl;
+    #endif
 }
 
 void DepthEstimator::initConstantSpaceBP(const cv::Size im_size, const int ndisp, const int iter, const int levels, const int nr_plane)
 {
-    // Estimate recommended parameters
-    int r_ndisp, r_iter, r_levels, r_nr_plane;
-    cv::cuda::StereoConstantSpaceBP::estimateRecommendedParams(im_size.width, im_size.height, r_ndisp, r_iter, r_levels, r_nr_plane);
+    #ifdef USE_CUDA
+        // Estimate recommended parameters
+        int r_ndisp, r_iter, r_levels, r_nr_plane;
+        cv::cuda::StereoConstantSpaceBP::estimateRecommendedParams(im_size.width, im_size.height, r_ndisp, r_iter, r_levels, r_nr_plane);
 
-    int _ndisp = (ndisp > 0) ? ndisp : r_ndisp;
-    int _iter = (iter > 0) ? iter : r_iter;
-    int _levels = (levels > 0) ? levels : r_levels;
-    int _nr_plane = (nr_plane > 0) ? nr_plane : r_nr_plane;
+        int _ndisp = (ndisp > 0) ? ndisp : r_ndisp;
+        int _iter = (iter > 0) ? iter : r_iter;
+        int _levels = (levels > 0) ? levels : r_levels;
+        int _nr_plane = (nr_plane > 0) ? nr_plane : r_nr_plane;
 
-    this->stereo_matcher = cv::cuda::createStereoConstantSpaceBP(_ndisp, _iter, _levels, _nr_plane);
+        this->stereo_matcher = cv::cuda::createStereoConstantSpaceBP(_ndisp, _iter, _levels, _nr_plane);
 
-    this->initialized = true;
-    this->using_cuda = true;
+        this->initialized = true;
+        this->using_cuda = true;
+    #else
+        // Avoid warning
+        (void)im_size; (void)ndisp; (void)iter; (void)levels; (void)nr_plane;
+        std::cerr << "[Depth Estimator] CUDA not enabled. Cannot use cuda stereo matcher." << std::endl;
+    #endif
 }
 
 DepthEstimator::DepthEstimator(const cv::FileNode &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file)
@@ -126,6 +148,7 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
 {
     if (!this->initialized)
     {
+        std::cerr << "[Depth Estimator] Using stereo matcher not initialized." << std::endl;
         return cv::Mat(this->img_size, 0);
     }
 
@@ -133,17 +156,19 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
     
     if (this->using_cuda)
     {
-        cv::cuda::GpuMat img_left_gpu, img_right_gpu, disparity_map_gpu;
+        #ifdef USE_CUDA
+            cv::cuda::GpuMat img_left_gpu, img_right_gpu, disparity_map_gpu;
 
-        // Upload images to GPU
-        img_left_gpu.upload(img_left);
-        img_right_gpu.upload(img_right);
+            // Upload images to GPU
+            img_left_gpu.upload(img_left);
+            img_right_gpu.upload(img_right);
 
-        // Compute disparity map
-        stereo_matcher->compute(img_left_gpu, img_right_gpu, disparity_map_gpu);
+            // Compute disparity map
+            stereo_matcher->compute(img_left_gpu, img_right_gpu, disparity_map_gpu);
 
-        // Download depth map
-        disparity_map_gpu.download(disparity_map);
+            // Download depth map
+            disparity_map_gpu.download(disparity_map);
+        #endif
     } else {
         stereo_matcher->compute(img_left, img_right, disparity_map);
     }

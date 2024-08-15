@@ -22,25 +22,30 @@ find_package(vio_msgs REQUIRED)
 # Include Cpp "include" directory
 include_directories(include)
 
-# Include CUDA
-find_package(CUDA  REQUIRED)
-include_directories("${CUDA_INCLUDE_DIRS}")
-
 # OpenCV dependencies
 find_package( OpenCV REQUIRED )
 include_directories( ${OpenCV_INCLUDE_DIRS} )
 find_package(cv_bridge REQUIRED)
 
-find_package(jetson-utils REQUIRED)
-set(JetsonUtils_LIBS "/usr/local/lib/libjetson-utils.so")
+option(USE_CUDA  "Set to ON if the project is being built for running in a desktop device." ON)
+if (USE_CUDA)
+  add_definitions(-DUSE_CUDA)
 
-# camera_publisher
-add_executable(camera_publisher src/camera_publisher.cpp src/image_converter.cpp src/ros_compat.cpp) 
-ament_target_dependencies(camera_publisher rclcpp sensor_msgs vio_msgs vision_msgs jetson-utils OpenCV CUDA cv_bridge)
-target_link_libraries( camera_publisher ${OpenCV_LIBS} ${JetsonUtils_LIBS})
-install(TARGETS
-  camera_publisher
-  DESTINATION lib/${PROJECT_NAME})
+  # Include CUDA
+  find_package(CUDA  REQUIRED)
+  include_directories("${CUDA_INCLUDE_DIRS}")
+
+  find_package(jetson-utils REQUIRED)
+  set(JetsonUtils_LIBS "/usr/local/lib/libjetson-utils.so")
+
+  # camera_publisher
+  add_executable(camera_publisher src/camera_publisher.cpp src/image_converter.cpp src/ros_compat.cpp) 
+  ament_target_dependencies(camera_publisher rclcpp sensor_msgs vio_msgs vision_msgs jetson-utils OpenCV CUDA cv_bridge)
+  target_link_libraries( camera_publisher ${OpenCV_LIBS} ${JetsonUtils_LIBS})
+  install(TARGETS
+    camera_publisher
+    DESTINATION lib/${PROJECT_NAME})
+endif()
 
 # Install Python modules
 ament_python_install_package(${PROJECT_NAME})

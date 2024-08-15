@@ -5,6 +5,11 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+option(USE_CUDA  "Set to ON if the project is being built for running in a desktop device." ON)
+if (USE_CUDA)
+  add_definitions(-DUSE_CUDA)
+endif()
+
 # Include Cpp "include" directory
 include_directories(include)
 

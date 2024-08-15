@@ -125,7 +125,7 @@ private:
             return;
         }
 
-        RCLCPP_INFO(this->get_logger(), "Estimating motion. Points: %d", pts_3d.size());
+        RCLCPP_INFO(this->get_logger(), "Estimating motion. Points: %ld", pts_3d.size());
         cv::Mat rvec, tvec, R;        
         try {
             cv::solvePnPRansac(pts_3d, pts_2d, this->lcam_intrinsics.cameraMatrix(), this->lcam_intrinsics.distCoeffs(), rvec, tvec);

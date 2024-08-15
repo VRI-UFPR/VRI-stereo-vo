@@ -1,0 +1,96 @@
+FROM ros:humble-ros-base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+ENV ROS_DISTRO humble
+ENV ROS_PYTHON_VERSION 3
+ENV ROS_ROOT /opt/ros/${ROS_DISTRO}
+
+# install bootstrap tools
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y build-essential git python3-pip \
+    && python3 -m pip install \
+        colcon-common-extensions \
+        colcon-mixin \
+        rosdep \
+        vcstool \
+        argcomplete \
+        cython \
+    && rm -rf /var/lib/apt/lists/*
+
+# setup colcon mixin and metadata
+RUN colcon mixin update \
+    && colcon metadata update
+
+# install libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \ 
+    build-essential \
+    libboost-system-dev \
+    libboost-thread-dev \
+    libboost-program-options-dev \
+    libboost-test-dev \
+    libboost-filesystem-dev \
+    libglew-dev \
+    libeigen3-dev \
+    libgeographic-dev \
+    nlohmann-json3-dev \
+    libasio-dev \
+    libboost-all-dev \
+    libssl-dev \
+    libwebsocketpp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# install opencv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopencv-dev \
+    python3-opencv \
+    && rm -rf /var/lib/apt/lists/*
+
+# install ros2 packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-geographic-info \
+    ros-${ROS_DISTRO}-angles \
+    ros-${ROS_DISTRO}-vision-msgs \
+    ros-${ROS_DISTRO}-cv-bridge \
+    ros-${ROS_DISTRO}-vision-opencv \
+    && rm -rf /var/lib/apt/lists/*
+
+# install python libraries
+RUN apt-get update && python3 -m pip install --upgrade pip \
+&& python3 -m pip install \
+    numpy \
+    Adafruit_Blinka \
+    adafruit_circuitpython_bitbangio \
+    adafruit_circuitpython_bno08x \
+    adafruit_circuitpython_motor \
+    adafruit_circuitpython_tcs34725 \
+    adafruit_circuitpython_vl53l0x \
+    adafruit_circuitpython_ina219 \
+    adafruit_circuitpython_mpu6050 \
+    adafruit_circuitpython_pca9685 \
+    pytest \
+    rdp \
+    scipy \
+    setuptools \
+    smbus \
+    Jetson.GPIO 
+
+# For packages that we need to compile from source
+WORKDIR /install_deps 
+
+# Install ceres 1.14
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    cmake wget libgoogle-glog-dev libgflags-dev \
+    libatlas-base-dev libeigen3-dev libsuitesparse-dev
+# RUN wget http://ceres-solver.org/ceres-solver-1.14.0.tar.gz \
+#     && tar -xf ceres-solver-1.14.0.tar.gz \
+#     && mkdir ceres-bin \
+#     && cd ceres-bin \
+#     && cmake ../ceres-solver-1.14.0 \
+#     && make -j3 \
+#     && make install
+
+# Set entrypoint
+COPY ./ros_entrypoint.sh /
+ENTRYPOINT ["/ros_entrypoint.sh"]

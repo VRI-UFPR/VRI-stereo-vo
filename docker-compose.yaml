@@ -1,0 +1,24 @@
+services:
+  stereo-vo:
+    image: vri-ufpr/stereo-vo:latest
+    container_name: stereo-vo
+    privileged: true
+    ipc: host
+    network_mode: host
+    volumes:
+      - .:/workspace/
+      - /tmp.X11-unix:/tmp/.X11-unix
+      - /dev:/dev
+      - /tmp/argus_socket:/tmp/argus_socket
+      - $HOME/.Xauthority:/root/.Xauthority:rw
+    cap_add:
+      - SYS_PTRACE
+    environment:
+      - DISPLAY=$DISPLAY
+    working_dir: /workspace/
+    entrypoint: /bin/bash
+
+  # foxglove-bridge:
+  #   image: foxglove/bridge:ros2
+  #   container_name: foxglove-bridge
+  #   network_mode: host
