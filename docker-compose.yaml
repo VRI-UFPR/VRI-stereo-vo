@@ -11,14 +11,9 @@ services:
       - /dev:/dev
       - /tmp/argus_socket:/tmp/argus_socket
       - $HOME/.Xauthority:/root/.Xauthority:rw
-    cap_add:
-      - SYS_PTRACE
-    environment:
-      - DISPLAY=$DISPLAY
-    working_dir: /workspace/
-    entrypoint: /bin/bash
+    command: tail -f /dev/null # Keep container running
 
-  # foxglove-bridge:
-  #   image: foxglove/bridge:ros2
-  #   container_name: foxglove-bridge
-  #   network_mode: host
+  foxglove-bridge:
+    image: foxglove/bridge:ros2
+    container_name: foxglove-bridge
+    network_mode: host

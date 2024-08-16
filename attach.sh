@@ -1,0 +1,1 @@
+docker exec -w /workspace -it stereo-vo bash
