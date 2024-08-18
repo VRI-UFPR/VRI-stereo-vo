@@ -35,18 +35,18 @@ find_package(cv_bridge REQUIRED)
 
 # Add stereo_vo_node
 add_executable(stereo_vo_node src/stereo_vo_node.cpp)
-ament_target_dependencies(stereo_vo_node rclcpp message_filters sensor_msgs vio_msgs nav_msgs OpenCV cv_bridge)
+ament_target_dependencies(stereo_vo_node rclcpp sensor_msgs vio_msgs nav_msgs OpenCV cv_bridge)
 target_link_libraries(stereo_vo_node ${OpenCV_LIBS})
 install(TARGETS
   stereo_vo_node
   DESTINATION lib/${PROJECT_NAME})
 
-# Add depth_estimator_server
-add_executable(depth_estimator_server src/depth_estimator_server.cpp)
-ament_target_dependencies(depth_estimator_server rclcpp sensor_msgs vio_msgs OpenCV cv_bridge)
-target_link_libraries(depth_estimator_server ${OpenCV_LIBS})
+# Add depth_estimator_node
+add_executable(depth_estimator_node src/depth_estimator_node.cpp)
+ament_target_dependencies(depth_estimator_node rclcpp message_filters sensor_msgs vio_msgs OpenCV cv_bridge)
+target_link_libraries(depth_estimator_node ${OpenCV_LIBS})
 install(TARGETS
-  depth_estimator_server
+  depth_estimator_node
   DESTINATION lib/${PROJECT_NAME})
 
 # Add feature_extractor_server

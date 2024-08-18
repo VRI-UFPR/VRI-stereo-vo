@@ -29,7 +29,7 @@ public:
     DepthEstimator() {};
     DepthEstimator(const cv::FileNode &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file);
 
-    cv::Mat compute(const cv::Mat &img_left, const cv::Mat &img_right);
+    cv::Mat compute(const cv::Mat &img_left, const cv::Mat &img_right, bool undistorted);
 };
 
 void DepthEstimator::initStereoBM(const int ndisp, const int block_size)
@@ -144,12 +144,21 @@ DepthEstimator::DepthEstimator(const cv::FileNode &config, const std::string lca
         this->initConstantSpaceBP(img_size, ndisp, iter, levels, nr_plane);
 }
 
-cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_right)
+cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_right, bool undistorted = false)
 {
     if (!this->initialized)
     {
         std::cerr << "[Depth Estimator] Using stereo matcher not initialized." << std::endl;
         return cv::Mat(this->img_size, 0);
+    }
+
+    // Undistort images
+    cv::Mat limg_rect = img_left;
+    cv::Mat rimg_rect = img_right;
+    if (!undistorted)
+    {
+        limg_rect = this->lcam_intrinsics.undistortImage(img_left);
+        rimg_rect = this->rcam_intrinsics.undistortImage(img_right);
     }
 
     cv::Mat disparity_map;
@@ -160,8 +169,8 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
             cv::cuda::GpuMat img_left_gpu, img_right_gpu, disparity_map_gpu;
 
             // Upload images to GPU
-            img_left_gpu.upload(img_left);
-            img_right_gpu.upload(img_right);
+            img_left_gpu.upload(limg_rect);
+            img_right_gpu.upload(rimg_rect);
 
             // Compute disparity map
             stereo_matcher->compute(img_left_gpu, img_right_gpu, disparity_map_gpu);
@@ -170,21 +179,21 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
             disparity_map_gpu.download(disparity_map);
         #endif
     } else {
-        stereo_matcher->compute(img_left, img_right, disparity_map);
+        stereo_matcher->compute(limg_rect, rimg_rect, disparity_map);
     }
 
-    // Normalize
-    disparity_map.convertTo(disparity_map, CV_32F);
-    // cv::normalize(disparity_map, disparity_map, 0, 255, cv::NORM_MINMAX, CV_32F);
+    // // Normalize
+    cv::normalize(disparity_map, disparity_map, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+    // disparity_map.convertTo(disparity_map, CV_64F);
 
-    double lfx = this->lcam_intrinsics.fx();
-    double baseline = this->lcam_intrinsics.tlVector().at<double>(1);
+    // double fc = this->lcam_intrinsics.fx() * this->lcam_intrinsics.tlVector().at<double>(1);
 
-    cv::Mat mask = (disparity_map == 0.0) & (disparity_map == -1.0);
-    disparity_map.setTo(0.1, mask);
+    // cv::Mat depth_map = cv::Mat::zeros(disparity_map.size(), CV_64F);
+    // cv::Mat mask = (disparity_map == 0.0);
+    // disparity_map.setTo(0.001, mask);
+    // disparity_map = fc / disparity_map;
 
-    cv::Mat depth_map = cv::Mat::ones(disparity_map.size(), CV_32F);
-    depth_map = (lfx * baseline) / disparity_map;
+    // cv::normalize(disparity_map, disparity_map, 0, 65536, cv::NORM_MINMAX, CV_16UC1);
 
-    return depth_map;
+    return disparity_map;
 }

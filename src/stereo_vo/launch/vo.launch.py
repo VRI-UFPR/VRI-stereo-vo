@@ -51,7 +51,7 @@ def launch_setup(context):
         Node(
             package='stereo_vo',
             condition=IfCondition(AndSubstitution(LaunchConfiguration("vo_enable"), LaunchConfiguration("estimate_depth"))),
-            executable='depth_estimator_server',
+            executable='depth_estimator_node',
             parameters=[{'config_file' : config_file_path}],
         ),
         Node(

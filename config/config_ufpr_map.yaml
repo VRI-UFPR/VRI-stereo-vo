@@ -24,6 +24,7 @@ sensors:
 
 stereo_vo:
   odom_topic: "/stereo_vo/odom"
+  ground_truth: ""
 
   debug_visualization: 1
   depth_map_viz: "/stereo_vo/depth_map_viz"
@@ -41,7 +42,7 @@ stereo_vo:
     intrinsics_file: "/workspace/config/kinetic_intrinsics.yaml"
 
   depth_estimator_params:
-    depth_estimator_service: "/stereo_vo/depth_estimation"
+    topic: "/camera/depth/image"
     
     image_size:
       width: 640
