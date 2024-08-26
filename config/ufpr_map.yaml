@@ -1,12 +1,11 @@
-%YAML 1.0
-
 imu: false
 camera: false
-depth: true
+vo: true
+depth: false
 markers: true
 bag: true
 
-bag_path: "/workspace/Data/bags/MH_01_easy_ros2"
+bag_name: "dataset_vri4wd_ufpr-map_20230830s001ab_ros2-bag"
 
 sensors:
   imu:
@@ -25,20 +24,22 @@ im_size:
   width: 640
   height: 480
 
-undistort: 1
+undistort: false
+
+baseline: 0.075
 
 left_cam:
-  topic: "/cam0/image_raw"
-  intrinsics_file: "/workspace/config/euroc_0_intrinsics.yaml"
+  topic: "/camera/rgb/image_mono"
+  intrinsics_file: "/workspace/config/intrinsics/kinetic_intrinsics.yaml"
 
 right_cam:
-  topic: "/cam1/image_raw"
-  intrinsics_file: "/workspace/config/euroc_1_intrinsics.yaml"
+  topic: "/camera/rgb/image_mono"
+  intrinsics_file: "/workspace/config/intrinsics/kinetic_intrinsics.yaml"
 
 vo_odom_topic: "/stereo_vo/odom"
 feature_viz: "/stereo_vo/feature_viz"
 
-depth_topic: "/stereo_vo/depth_estimation"
+depth_topic: "/camera/depth/image"
 
 feature_extractor_service: "/stereo_vo/feature_extraction"
 

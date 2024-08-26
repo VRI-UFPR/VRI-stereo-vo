@@ -10,6 +10,7 @@
 #include <vector>
 #include <chrono>
 
+#include <yaml-cpp/yaml.h>
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
 
@@ -151,15 +152,16 @@ public:
 
         // Load config
         std::string config_file;
-        this->declare_parameter("config_file", "/workspace/config/config_imx.yaml");
+        this->declare_parameter("config_file", "/workspace/config/config.yaml");
         this->get_parameter("config_file", config_file);
         RCLCPP_INFO_STREAM(this->get_logger(), "Loading config file: " << config_file);
-        cv::FileStorage fs(config_file, cv::FileStorage::READ);
+
+        YAML::Node main_config = YAML::LoadFile(config_file); 
+        std::string preset_path = "/workspace/config/" + main_config["preset"].as<std::string>() + ".yaml";
+        YAML::Node preset_config = YAML::LoadFile(preset_path);
 
         // Parse parameters
-        cv::FileNode vo_config = fs["stereo_vo"];
-        std::string feature_extractor_service = vo_config["feature_extractor_service"].string();
-        fs.release();
+        std::string feature_extractor_service = preset_config["feature_extractor_service"].as<std::string>();
 
         // Initialize service
         this->feature_server = this->create_service<vio_msgs::srv::FeatureExtractor>(feature_extractor_service, 

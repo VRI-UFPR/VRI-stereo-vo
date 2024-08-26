@@ -1,6 +1,7 @@
 #include <string>
 #include <iostream>
 
+#include <yaml-cpp/yaml.h>
 #include <opencv2/opencv.hpp>
 
 #ifdef USE_CUDA
@@ -27,7 +28,7 @@ private:
 
 public:
     DepthEstimator() {};
-    DepthEstimator(const cv::FileNode &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file);
+    DepthEstimator(const YAML::Node &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file, cv::Size img_size);
 
     cv::Mat compute(const cv::Mat &img_left, const cv::Mat &img_right, bool undistorted);
 };
@@ -115,17 +116,16 @@ void DepthEstimator::initConstantSpaceBP(const cv::Size im_size, const int ndisp
     #endif
 }
 
-DepthEstimator::DepthEstimator(const cv::FileNode &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file)
+DepthEstimator::DepthEstimator(const YAML::Node &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file, cv::Size img_size)
 {
-    std::string algorithm = config["depth_algorithm"];
-
-    cv::Size img_size = cv::Size(config["image_size"]["width"], config["image_size"]["height"]);
     this->img_size = img_size;
-    int ndisp = config["num_disparities"];
-    int block_size = config["block_size"];
-    int iter = config["iterations"];
-    int levels = config["levels"];
-    int nr_plane = config["nr_plane"];
+
+    std::string algorithm = config["depth_algorithm"].as<std::string>();
+    int ndisp = config["num_disparities"].as<int>();
+    int block_size = config["block_size"].as<int>();
+    int iter = config["iterations"].as<int>();
+    int levels = config["levels"].as<int>();
+    int nr_plane = config["nr_plane"].as<int>();
 
     this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
     this->rcam_intrinsics = OpenCVConversions::CameraIntrinsics(rcam_intrinsics_file);

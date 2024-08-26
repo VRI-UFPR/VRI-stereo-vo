@@ -32,35 +32,36 @@ find_package( OpenCV REQUIRED )
 include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 find_package(cv_bridge REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # Add stereo_vo_node
 add_executable(stereo_vo_node src/stereo_vo_node.cpp)
-ament_target_dependencies(stereo_vo_node rclcpp sensor_msgs vio_msgs nav_msgs OpenCV cv_bridge)
-target_link_libraries(stereo_vo_node ${OpenCV_LIBS})
+ament_target_dependencies(stereo_vo_node rclcpp sensor_msgs vio_msgs nav_msgs OpenCV cv_bridge yaml-cpp)
+target_link_libraries(stereo_vo_node ${OpenCV_LIBS} yaml-cpp::yaml-cpp)
 install(TARGETS
   stereo_vo_node
   DESTINATION lib/${PROJECT_NAME})
 
 # Add depth_estimator_node
 add_executable(depth_estimator_node src/depth_estimator_node.cpp)
-ament_target_dependencies(depth_estimator_node rclcpp message_filters sensor_msgs vio_msgs OpenCV cv_bridge)
-target_link_libraries(depth_estimator_node ${OpenCV_LIBS})
+ament_target_dependencies(depth_estimator_node rclcpp message_filters sensor_msgs vio_msgs OpenCV cv_bridge yaml-cpp)
+target_link_libraries(depth_estimator_node ${OpenCV_LIBS} yaml-cpp::yaml-cpp)
 install(TARGETS
   depth_estimator_node
   DESTINATION lib/${PROJECT_NAME})
 
 # Add feature_extractor_server
 add_executable(feature_extractor_server src/feature_extractor_server.cpp)
-ament_target_dependencies(feature_extractor_server rclcpp sensor_msgs vio_msgs OpenCV cv_bridge)
-target_link_libraries(feature_extractor_server ${OpenCV_LIBS})
+ament_target_dependencies(feature_extractor_server rclcpp sensor_msgs vio_msgs OpenCV cv_bridge yaml-cpp)
+target_link_libraries(feature_extractor_server ${OpenCV_LIBS} yaml-cpp::yaml-cpp)
 install(TARGETS
   feature_extractor_server
   DESTINATION lib/${PROJECT_NAME})
 
 # visualization_node
 add_executable(visualization_node src/visualization_node.cpp)
-ament_target_dependencies(visualization_node rclcpp nav_msgs visualization_msgs OpenCV)
-target_link_libraries( visualization_node ${OpenCV_LIBS} )
+ament_target_dependencies(visualization_node rclcpp nav_msgs visualization_msgs yaml-cpp)
+target_link_libraries( visualization_node yaml-cpp::yaml-cpp )
 install(TARGETS
   visualization_node
   DESTINATION lib/${PROJECT_NAME})

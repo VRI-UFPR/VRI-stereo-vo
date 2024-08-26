@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 
-#include <opencv2/opencv.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
@@ -26,16 +26,17 @@ public:
 
         // Load config
         std::string config_file;
-        this->declare_parameter("config_file", "/workspace/config/config_imx.yaml");
+        this->declare_parameter("config_file", "/workspace/config/config.yaml");
         this->get_parameter("config_file", config_file);
         RCLCPP_INFO_STREAM(this->get_logger(), "Loading config file: " << config_file);
-        cv::FileStorage fs(config_file, cv::FileStorage::READ);
-        // cv::FileNode vo_config = fs["stereo_vo"];
+        
+        YAML::Node main_config = YAML::LoadFile(config_file); 
+        std::string preset_path = "/workspace/config/" + main_config["preset"].as<std::string>() + ".yaml";
+        YAML::Node preset_config = YAML::LoadFile(preset_path);
 
         // Parse parameters
-        std::string visualization_topic = fs["stereo_vo"]["odom_topic"];
-        std::string ground_truth = fs["stereo_vo"]["ground_truth"];
-        fs.release();
+        std::string visualization_topic = preset_config["vo_odom_topic"].as<std::string>();
+        std::string ground_truth = preset_config["ground_truth"].as<std::string>();
         
         std::vector<std::string> visualization_topics = {visualization_topic, ground_truth};
 

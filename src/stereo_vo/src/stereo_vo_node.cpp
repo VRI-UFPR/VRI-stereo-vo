@@ -15,6 +15,7 @@
 
 #include "opencv_conversions.hpp"
 
+#include <yaml-cpp/yaml.h>
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <eigen3/Eigen/Core>
@@ -39,6 +40,7 @@ private:
 
     // Camera intrinsics
     OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
+    double baseline = 0.012;
     bool undistort = false;
     
     // Image subscriber
@@ -128,10 +130,7 @@ private:
         double fx = this->lcam_intrinsics.fx();
         double fy = this->lcam_intrinsics.fy();
         
-        // double baseline = abs(this->lcam_intrinsics.tlVector().at<double>(2) - this->rcam_intrinsics.tlVector().at<double>(2)) * 1000;
-        double baseline = 0.075;
-        // RCLCPP_INFO_STREAM(this->get_logger(), "L: " << this->lcam_intrinsics.tlVector().at<double>(0) << " R: " << this->rcam_intrinsics.tlVector().at<double>(0) << " Baseline: " << baseline);
-        double depth_scale = fx * baseline;
+        double depth_scale = fx * this->baseline;
         
         std::vector<cv::Point3d> pts_3d;
         std::vector<cv::Point2d> pts_2d;
@@ -246,25 +245,29 @@ public:
 
         // Load config
         std::string config_file;
-        this->declare_parameter("config_file", "/workspace/config/config_imx.yaml");
+        this->declare_parameter("config_file", "/workspace/config/config.yaml");
         this->get_parameter("config_file", config_file);
         RCLCPP_INFO_STREAM(this->get_logger(), "Loading config file: " << config_file);
-        cv::FileStorage fs(config_file, cv::FileStorage::READ);
-        cv::FileNode vo_config = fs["stereo_vo"];
 
+        YAML::Node main_config = YAML::LoadFile(config_file); 
+        std::string preset_path = "/workspace/config/" + main_config["preset"].as<std::string>() + ".yaml";
+        YAML::Node preset_config = YAML::LoadFile(preset_path);
+        
         // Parse config
-        std::string lcam_topic = vo_config["left_cam"]["topic"];
-        std::string lcam_intrinsics_file = vo_config["left_cam"]["intrinsics_file"];
-        std::string rcam_intrinsics_file = vo_config["right_cam"]["intrinsics_file"];
-        std::string depth_topic = vo_config["depth_estimator_params"]["topic"];
-        std::string feature_extractor_service = vo_config["feature_extractor_service"];
-        this->enable_viz = static_cast<bool>(vo_config["debug_visualization"].real());
-        std::string feature_viz_topic = vo_config["feature_viz"];
-        std::string odometry_topic = vo_config["odom_topic"];
-        this->velocity_buffer_size = static_cast<size_t>(vo_config["velocity_buffer_size"].real());
-        this->velocity_threshold = vo_config["velocity_threshold"].real();
-        this->undistort = static_cast<bool>(vo_config["undistort"].real());
-        fs.release();
+        std::string lcam_topic = preset_config["left_cam"]["topic"].as<std::string>();
+        std::string lcam_intrinsics_file = preset_config["left_cam"]["intrinsics_file"].as<std::string>();
+        std::string rcam_intrinsics_file = preset_config["right_cam"]["intrinsics_file"].as<std::string>();
+        std::string depth_topic = preset_config["depth_topic"].as<std::string>();
+        std::string feature_extractor_service = preset_config["feature_extractor_service"].as<std::string>();
+        std::string feature_viz_topic = preset_config["feature_viz"].as<std::string>();
+        std::string odometry_topic = preset_config["vo_odom_topic"].as<std::string>();
+        this->undistort = preset_config["undistort"].as<bool>();
+        this->baseline = preset_config["baseline"].as<double>();
+
+        YAML::Node stereo_vo_config = main_config["stereo_vo"];
+        this->enable_viz = stereo_vo_config["debug_visualization"].as<bool>();
+        this->velocity_buffer_size = stereo_vo_config["velocity_buffer_size"].as<size_t>();
+        this->velocity_threshold = stereo_vo_config["velocity_threshold"].as<double>();
 
         // Load camera intrinsics
         this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);

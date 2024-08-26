@@ -4,26 +4,44 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, AndSubstitution, NotSubstitution
 from launch_ros.actions import Node
 
-BAG_FOLDER = "/workspace/Data/bags/"
-CONFIGS_FOLDER = "/workspace/config/"
+import yaml
 
-launch_args = [
-    DeclareLaunchArgument(name="camera_enable", default_value="true", description="Enable camera node"),
-    DeclareLaunchArgument(name="imu_enable", default_value="true", description="Enable IMU node"),
-    DeclareLaunchArgument(name="vo_enable", default_value="true", description="Enable VO pose estimation"),
-    DeclareLaunchArgument(name="estimate_depth", default_value="false", description="Run depth estimator server"),
-    DeclareLaunchArgument(name="enable_viz", default_value="true", description="Enable markers visualization"),
+BAG_FOLDER = "/workspace/Data/bags"
+CONFIGS_FOLDER = "/workspace/config"
+MAIN_CONFIG_PATH = CONFIGS_FOLDER + "/config.yaml"
 
-    # Bag arguments
-    DeclareLaunchArgument(name="bag", default_value="true", description="Enable bag file"),
-    DeclareLaunchArgument(name="bagfile", default_value="dataset_vri4wd_ufpr-map_20230830s001ab_ros2-bag", description="Bag folder to play"),
+def bool2str(value):
+    return "true" if value else "false"
 
-    # Config file
-    DeclareLaunchArgument(name="config_file", default_value="config_ufpr_map.yaml", description="Name of the config file"),
-]
+def parse_config_file():
+    
+    # Load main config file
+    with open(MAIN_CONFIG_PATH, 'r') as stream:
+        main_config = yaml.load(stream)
+
+    # Load preset config file
+    with open(f"{CONFIGS_FOLDER}/{main_config['preset']}.yaml", 'r') as stream:
+        preset_config = yaml.load(stream)
+        
+    launch_args = [
+
+        # Sensors arguments
+        DeclareLaunchArgument(name="camera_enable", default_value=bool2str(preset_config["camera"]), description="Enable camera node"),
+        DeclareLaunchArgument(name="imu_enable", default_value=bool2str(preset_config["imu"]), description="Enable IMU node"),
+
+        # VO arguments
+        DeclareLaunchArgument(name="vo_enable", default_value=bool2str(preset_config["vo"]), description="Enable VO pose estimation"),
+        DeclareLaunchArgument(name="estimate_depth", default_value=bool2str(preset_config["depth"]), description="Run depth estimator server"),
+        DeclareLaunchArgument(name="enable_viz", default_value=bool2str(preset_config["markers"]), description="Enable markers visualization"),
+
+        # Bag arguments
+        DeclareLaunchArgument(name="bag", default_value=bool2str(preset_config["bag"]), description="Play bag file"),
+        DeclareLaunchArgument(name="bagfile", default_value=preset_config["bag_name"], description="Bag file name"),
+    ]
+
+    return launch_args
 
 def launch_setup(context):
-    config_file_path = PathJoinSubstitution([CONFIGS_FOLDER, LaunchConfiguration("config_file")])
     bag_path = PathJoinSubstitution([BAG_FOLDER, LaunchConfiguration("bagfile")])
 
     return [
@@ -32,13 +50,13 @@ def launch_setup(context):
             package='drivers',
             condition=IfCondition(AndSubstitution(LaunchConfiguration("camera_enable"), NotSubstitution(LaunchConfiguration("bag")))),
             executable='camera_publisher',
-            parameters=[{'config_file' : config_file_path}],
+            parameters=[{'config_file' : MAIN_CONFIG_PATH}],
         ),
         Node(
             package='drivers',
             condition=IfCondition(AndSubstitution(LaunchConfiguration("imu_enable"), NotSubstitution(LaunchConfiguration("bag")))),
             executable='bno_publisher.py',
-            parameters=[{'config_file' : config_file_path}],
+            parameters=[{'config_file' : MAIN_CONFIG_PATH}],
         ),
 
         # Launch VO related nodes
@@ -46,19 +64,19 @@ def launch_setup(context):
             package='stereo_vo',
             condition=IfCondition(LaunchConfiguration("vo_enable")),
             executable='stereo_vo_node',
-            parameters=[{'config_file' : config_file_path}],
+            parameters=[{'config_file' : MAIN_CONFIG_PATH}],
         ),
         Node(
             package='stereo_vo',
             condition=IfCondition(AndSubstitution(LaunchConfiguration("vo_enable"), LaunchConfiguration("estimate_depth"))),
             executable='depth_estimator_node',
-            parameters=[{'config_file' : config_file_path}],
+            parameters=[{'config_file' : MAIN_CONFIG_PATH}],
         ),
         Node(
             package='stereo_vo',
             condition=IfCondition(LaunchConfiguration("vo_enable")),
             executable='feature_extractor_server',
-            parameters=[{'config_file' : config_file_path}],
+            parameters=[{'config_file' : MAIN_CONFIG_PATH}],
         ),
 
         # Launch visualization
@@ -66,7 +84,13 @@ def launch_setup(context):
             package='stereo_vo',
             condition=IfCondition(LaunchConfiguration("enable_viz")),
             executable='visualization_node',
-            parameters=[{'config_file' : config_file_path}],
+            parameters=[{'config_file' : MAIN_CONFIG_PATH}],
+        ),
+        Node(
+            package='tf2_ros',
+            condition=IfCondition(LaunchConfiguration("enable_viz")),
+            executable='static_transform_publisher',
+            arguments=['0', '0', '0', '0', '0', '0', 'world', 'camera_link'],
         ),
 
         # Launch bag file
@@ -79,6 +103,7 @@ def launch_setup(context):
 
 def generate_launch_description():
     opfunc = OpaqueFunction(function=launch_setup)
+    launch_args = parse_config_file()
     ld = LaunchDescription(launch_args)
     ld.add_action(opfunc)
     return ld

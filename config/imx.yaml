@@ -1,12 +1,11 @@
-%YAML 1.0
-
 imu: false
 camera: true
+vo: true
 depth: true
 markers: true
 bag: false
 
-bag_path: ""
+bag_name: ""
 
 sensors:
   imu:
@@ -25,15 +24,17 @@ im_size:
   width: 640
   height: 480
 
-undistort: 1
+undistort: true
+
+baseline: 0.03968711591
 
 left_cam:
   topic: "/sensors/imx_right/image_raw"
-  intrinsics_file: "/workspace/config/imx_left_intrinsics.yaml"
+  intrinsics_file: "/workspace/config/intrinsics/imx_left_intrinsics.yaml"
 
 right_cam:
   topic: "/sensors/imx_right/image_raw"
-  intrinsics_file: "/workspace/config/imx_rigth_intrinsics.yaml"
+  intrinsics_file: "/workspace/config/intrinsics/imx_rigth_intrinsics.yaml"
 
 vo_odom_topic: "/stereo_vo/odom"
 feature_viz: "/stereo_vo/feature_viz"
