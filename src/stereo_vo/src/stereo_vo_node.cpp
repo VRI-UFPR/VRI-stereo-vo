@@ -32,8 +32,14 @@ private:
     std::vector<cv::DMatch> good_matches;
     Eigen::Matrix4d curr_pose = Eigen::Matrix4d::Identity();
 
+    // Velocity outlier detection
+    size_t velocity_buffer_size = 10;
+    double velocity_threshold = 5.0;
+    std::vector<double> last_velocities;
+
     // Camera intrinsics
     OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
+    bool undistort = false;
     
     // Image subscriber
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr lcam_sub;
@@ -122,9 +128,11 @@ private:
         double fx = this->lcam_intrinsics.fx();
         double fy = this->lcam_intrinsics.fy();
         
-        double baseline = abs(this->lcam_intrinsics.tlVector().at<double>(0) - this->rcam_intrinsics.tlVector().at<double>(0));
+        // double baseline = abs(this->lcam_intrinsics.tlVector().at<double>(2) - this->rcam_intrinsics.tlVector().at<double>(2)) * 1000;
+        double baseline = 0.075;
+        // RCLCPP_INFO_STREAM(this->get_logger(), "L: " << this->lcam_intrinsics.tlVector().at<double>(0) << " R: " << this->rcam_intrinsics.tlVector().at<double>(0) << " Baseline: " << baseline);
         double depth_scale = fx * baseline;
-
+        
         std::vector<cv::Point3d> pts_3d;
         std::vector<cv::Point2d> pts_2d;
         for (cv::DMatch &m : this->good_matches)
@@ -138,7 +146,7 @@ private:
                 continue;
             }
 
-            // z = depth_scale / z;
+            z = depth_scale / z;
             double x = (p.x - cx) * z / fx;
             double y = (p.y - cy) * z / fy;
 
@@ -147,7 +155,7 @@ private:
             // Get current image 2D point
             pts_2d.push_back(this->curr_img_kps[m.queryIdx].pt);
 
-            RCLCPP_INFO_STREAM(this->get_logger(), "DS: " << depth_scale << " Points: " << x << ", " << y << ", " << z << " | " << p.x << ", " << p.y << " | " << this->curr_img_kps[m.queryIdx].pt.x << ", " << this->curr_img_kps[m.queryIdx].pt.y);
+            // RCLCPP_INFO_STREAM(this->get_logger(), "DS: " << depth_scale << " Points: " << x << ", " << y << ", " << z << " | " << p.x << ", " << p.y << " | " << this->curr_img_kps[m.queryIdx].pt.x << ", " << this->curr_img_kps[m.queryIdx].pt.y);
         }
 
         // Solve PnP
@@ -173,6 +181,29 @@ private:
         T(0, 3) = tvec.at<double>(0);
         T(1, 3) = tvec.at<double>(1);
         T(2, 3) = tvec.at<double>(2);
+
+        // Filter outliers using velocity
+        Eigen::Vector3d new_velocity = T.block<3, 1>(0, 3) - this->curr_pose.block<3, 1>(0, 3);
+        double nv_norm = new_velocity.norm();
+
+        RCLCPP_INFO_STREAM(this->get_logger(), "Velocity: " << nv_norm);
+
+        this->last_velocities.push_back(nv_norm);
+        if (this->last_velocities.size() > this->velocity_buffer_size)
+        {
+            this->last_velocities.pop_back();
+        }
+
+        if (this->last_velocities.size() == this->velocity_buffer_size)
+        {
+            std::sort(this->last_velocities.begin(), this->last_velocities.end());
+            double median_velocity = this->last_velocities[this->velocity_buffer_size / 2];
+            if ((nv_norm - median_velocity) > this->velocity_threshold)
+            {
+                RCLCPP_WARN(this->get_logger(), "Velocity outlier detected. Skipping frame. %f", (nv_norm - median_velocity));
+                // return;
+            }
+        }
 
         this->curr_pose *= T;
 
@@ -224,16 +255,20 @@ public:
         // Parse config
         std::string lcam_topic = vo_config["left_cam"]["topic"];
         std::string lcam_intrinsics_file = vo_config["left_cam"]["intrinsics_file"];
+        std::string rcam_intrinsics_file = vo_config["right_cam"]["intrinsics_file"];
         std::string depth_topic = vo_config["depth_estimator_params"]["topic"];
         std::string feature_extractor_service = vo_config["feature_extractor_service"];
-        this->enable_viz = vo_config["debug_visualization"].real();
+        this->enable_viz = static_cast<bool>(vo_config["debug_visualization"].real());
         std::string feature_viz_topic = vo_config["feature_viz"];
         std::string odometry_topic = vo_config["odom_topic"];
+        this->velocity_buffer_size = static_cast<size_t>(vo_config["velocity_buffer_size"].real());
+        this->velocity_threshold = vo_config["velocity_threshold"].real();
+        this->undistort = static_cast<bool>(vo_config["undistort"].real());
         fs.release();
 
         // Load camera intrinsics
         this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
-        this->rcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
+        this->rcam_intrinsics = OpenCVConversions::CameraIntrinsics(rcam_intrinsics_file);
 
         // Initialize subscribers and client
         this->lcam_sub = this->create_subscription<sensor_msgs::msg::Image>(lcam_topic, 10, std::bind(&StereoVONode::img_callback, this, std::placeholders::_1));
@@ -267,7 +302,14 @@ public:
             rclcpp::Time curr_img_stamp = this->next_img.header.stamp;
 
             // Undistort images
-            cv::Mat rect_limg = this->lcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(this->next_img));
+            cv::Mat rect_limg;
+            if (this->undistort)
+            {
+               rect_limg = this->lcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(this->next_img));
+            } else {
+                rect_limg = OpenCVConversions::toCvImage(this->next_img);
+            }
+
             this->next_img.header.stamp = rclcpp::Time(0);
 
             // Feature extraction request

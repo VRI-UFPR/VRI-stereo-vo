@@ -1,0 +1,45 @@
+%YAML 1.0
+
+imu: false
+camera: true
+depth: true
+markers: true
+bag: false
+
+bag_path: ""
+
+sensors:
+  imu:
+    sample_rate: 300
+    bus: 1
+
+  cameras:
+    left:
+      - sample_rate: 30
+        input_stream: "csi://0"
+    right:
+      - sample_rate: 30
+        input_stream: "csi://1"
+
+im_size:
+  width: 640
+  height: 480
+
+undistort: 1
+
+left_cam:
+  topic: "/sensors/imx_right/image_raw"
+  intrinsics_file: "/workspace/config/imx_left_intrinsics.yaml"
+
+right_cam:
+  topic: "/sensors/imx_right/image_raw"
+  intrinsics_file: "/workspace/config/imx_rigth_intrinsics.yaml"
+
+vo_odom_topic: "/stereo_vo/odom"
+feature_viz: "/stereo_vo/feature_viz"
+
+depth_topic: "/stereo_vo/depth_estimation"
+
+feature_extractor_service: "/stereo_vo/feature_extraction"
+
+ground_truth: "/leica/position"

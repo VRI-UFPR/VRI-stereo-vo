@@ -13,7 +13,6 @@
 
 #include "rclcpp/rclcpp.hpp"
 
-#include "vio_msgs/msg/stereo_image.hpp"
 #include "sensor_msgs/msg/image.hpp"
 
 class ImxPublisher : public rclcpp::Node

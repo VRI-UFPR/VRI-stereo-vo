@@ -1,0 +1,45 @@
+%YAML 1.0
+
+imu: false
+camera: false
+depth: true
+markers: true
+bag: true
+
+bag_path: "/workspace/Data/bags/MH_01_easy_ros2"
+
+sensors:
+  imu:
+    sample_rate: 300
+    bus: 1
+
+  cameras:
+    left:
+      - sample_rate: 30
+        input_stream: ""
+    right:
+      - sample_rate: 30
+        input_stream: ""
+
+im_size:
+  width: 640
+  height: 480
+
+undistort: 1
+
+left_cam:
+  topic: "/cam0/image_raw"
+  intrinsics_file: "/workspace/config/euroc_0_intrinsics.yaml"
+
+right_cam:
+  topic: "/cam1/image_raw"
+  intrinsics_file: "/workspace/config/euroc_1_intrinsics.yaml"
+
+vo_odom_topic: "/stereo_vo/odom"
+feature_viz: "/stereo_vo/feature_viz"
+
+depth_topic: "/stereo_vo/depth_estimation"
+
+feature_extractor_service: "/stereo_vo/feature_extraction"
+
+ground_truth: "/leica/position"

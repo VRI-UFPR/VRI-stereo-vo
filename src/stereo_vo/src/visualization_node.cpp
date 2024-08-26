@@ -11,8 +11,8 @@
 #include <visualization_msgs/msg/marker.hpp>
 
 const std::vector<std::vector<float>> COLORS = {
-    {1.0, 0.0, 0.0},
     {0.0, 1.0, 0.0},
+    {1.0, 0.0, 0.0},
     {0.0, 0.0, 1.0},
     {1.0, 0.0, 1.0},
 };

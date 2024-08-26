@@ -41,6 +41,10 @@ stereo_vo:
     topic: "/camera/rgb/image_mono"
     intrinsics_file: "/workspace/config/kinetic_intrinsics.yaml"
 
+  undistort: 0
+  velocity_buffer_size: 5
+  velocity_threshold: 100.0
+
   depth_estimator_params:
     topic: "/camera/depth/image"
     

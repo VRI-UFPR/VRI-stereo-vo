@@ -42,6 +42,9 @@ stereo_vo:
     topic: "/cam1/image_raw"
     intrinsics_file: "/workspace/config/euroc_1_intrinsics.yaml"
 
+  velocity_buffer_size: 10
+  velocity_threshold: 15.0
+
   depth_estimator_params:
     topic: "/stereo_vo/depth_estimation"
     

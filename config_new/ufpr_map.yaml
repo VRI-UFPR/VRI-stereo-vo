@@ -1,0 +1,45 @@
+%YAML 1.0
+
+imu: false
+camera: false
+depth: false
+markers: true
+bag: true
+
+bag_path: "/workspace/Data/bags/dataset_vri4wd_ufpr-map_20230830s001ab_ros2-bag"
+
+sensors:
+  imu:
+    sample_rate: 300
+    bus: 1
+
+  cameras:
+    left:
+      - sample_rate: 30
+        input_stream: ""
+    right:
+      - sample_rate: 30
+        input_stream: ""
+
+im_size:
+  width: 640
+  height: 480
+
+undistort: 0
+
+left_cam:
+  topic: "/camera/rgb/image_mono"
+  intrinsics_file: "/workspace/config/kinetic_intrinsics.yaml"
+
+right_cam:
+  topic: "/camera/rgb/image_mono"
+  intrinsics_file: "/workspace/config/kinetic_intrinsics.yaml"
+
+vo_odom_topic: "/stereo_vo/odom"
+feature_viz: "/stereo_vo/feature_viz"
+
+depth_topic: "/camera/depth/image"
+
+feature_extractor_service: "/stereo_vo/feature_extraction"
+
+ground_truth: "/leica/position"
