@@ -5,10 +5,14 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp/executors/single_threaded_executor.hpp"
+#include "message_filters/subscriber.h"
+#include "message_filters/synchronizer.h"
+#include "message_filters/sync_policies/approximate_time.h"
 
 #include "sensor_msgs/msg/image.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 
+#include "vio_msgs/srv/depth_estimator.hpp"
 #include "vio_msgs/srv/feature_extractor.hpp"
 #include "vio_msgs/msg/d_matches.hpp"
 #include "vio_msgs/msg/key_points.hpp"
@@ -29,6 +33,7 @@ private:
     cv::Mat curr_img = cv::Mat(), prev_img = cv::Mat();
     cv::Mat prev_img_desc = cv::Mat();
     cv::Mat curr_depth_map = cv::Mat();
+    cv::Mat prev_depth_map = cv::Mat();
     std::vector<cv::KeyPoint> prev_img_kps, curr_img_kps;
     std::vector<cv::DMatch> good_matches;
     Eigen::Matrix4d curr_pose = Eigen::Matrix4d::Identity();
@@ -43,9 +48,13 @@ private:
     double baseline = 0.012;
     bool undistort = false;
     
-    // Image subscriber
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr lcam_sub;
-    sensor_msgs::msg::Image next_img;
+    // Subscribers and time synchronizer
+    message_filters::Subscriber<sensor_msgs::msg::Image> lcam_sub;
+    message_filters::Subscriber<sensor_msgs::msg::Image> rcam_sub;
+    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
+    std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> cam_sync;
+
+    sensor_msgs::msg::Image next_limg, next_rimg;
 
     // Depth subscriber
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_subscriber;
@@ -54,11 +63,15 @@ private:
 
     // Visualization publishers
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr feature_map_pub;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_map_pub;
     bool enable_viz = false;
+    bool estimate_depth = true;
 
     // Clients
     rclcpp::Client<vio_msgs::srv::FeatureExtractor>::SharedPtr feature_extractor_client;
-    vio_msgs::srv::FeatureExtractor::Response::SharedPtr feature_response;
+    vio_msgs::srv::FeatureExtractor::Response::SharedPtr feature_response = nullptr;
+    rclcpp::Client<vio_msgs::srv::DepthEstimator>::SharedPtr depth_estimator_client;
+    vio_msgs::srv::DepthEstimator::Response::SharedPtr depth_response = nullptr;
 
     // Pose publisher
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometry_pub;
@@ -76,7 +89,20 @@ private:
         }
     }
 
-    vio_msgs::srv::FeatureExtractor::Response::SharedPtr featureExtractionRequest(const cv::Mat &curr_img)
+    void featureExtractionCallback(const rclcpp::Client<vio_msgs::srv::FeatureExtractor>::SharedFuture future)
+    {
+        auto status = future.wait_for(std::chrono::seconds(1));
+        if (status == std::future_status::ready) 
+        {
+            RCLCPP_INFO(this->get_logger(), "Feature extraction completed.");
+
+            auto response = future.get();
+
+            this->feature_response = response;
+        }
+    }
+
+    void featureExtractionRequest(const cv::Mat &curr_img)
     {
         sensor_msgs::msg::Image curr_img_msg = OpenCVConversions::toRosImage(curr_img);
 
@@ -87,18 +113,37 @@ private:
 
         // Send request
         waitForService(this->feature_extractor_client);
-        auto future = this->feature_extractor_client->async_send_request(feature_extractor_request);
+        this->feature_extractor_client->async_send_request(feature_extractor_request, std::bind(&StereoVONode::featureExtractionCallback, this, std::placeholders::_1));
         RCLCPP_INFO(this->get_logger(), "Feature extraction request sent.");
-        
-        // Wait for response
-        if (this->executor->spin_until_future_complete(future) == rclcpp::FutureReturnCode::SUCCESS)
+    }
+
+    void depthEstimationCallback(const rclcpp::Client<vio_msgs::srv::DepthEstimator>::SharedFuture future)
+    {
+        auto status = future.wait_for(std::chrono::seconds(1));
+        if (status == std::future_status::ready) 
         {
-            RCLCPP_INFO(this->get_logger(), "Feature extraction response received.");
-            return future.get();
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Feature extraction request failed.");
-            return nullptr;
+            RCLCPP_INFO(this->get_logger(), "Depth estimation completed.");
+
+            auto response = future.get();
+
+            this->depth_response = response;
         }
+    }
+
+    void depthEstimationRequest(const cv::Mat &rimg, const cv::Mat &limg)
+    {
+        sensor_msgs::msg::Image lcam_img_msg = OpenCVConversions::toRosImage(limg);
+        sensor_msgs::msg::Image rcam_img_msg = OpenCVConversions::toRosImage(rimg);
+
+        // Depth estimation request
+        auto depth_estimator_request = std::make_shared<vio_msgs::srv::DepthEstimator::Request>();
+        depth_estimator_request->left_image = lcam_img_msg;
+        depth_estimator_request->right_image = rcam_img_msg;
+
+        // Send request
+        waitForService(this->depth_estimator_client);
+        this->depth_estimator_client->async_send_request(depth_estimator_request, std::bind(&StereoVONode::depthEstimationCallback, this, std::placeholders::_1));
+        RCLCPP_INFO(this->get_logger(), "Depth estimation request sent.");
     }
 
     void publishOdometry(const Eigen::Matrix4d &pose)
@@ -106,10 +151,13 @@ private:
         nav_msgs::msg::Odometry odometry_msg;
         odometry_msg.header.stamp = this->now();
 
-        // Convert to meters
-        odometry_msg.pose.pose.position.x = pose(0, 3);
-        odometry_msg.pose.pose.position.y = pose(1, 3);
-        odometry_msg.pose.pose.position.z = pose(2, 3);
+        Eigen::Vector4d position = pose * Eigen::Vector4d(0.0, 0.0, 0.0, 1.0);
+
+        RCLCPP_INFO_STREAM(this->get_logger(), "Estimated position: " << position.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
+
+        odometry_msg.pose.pose.position.x = position.x();
+        odometry_msg.pose.pose.position.y = position.y();
+        odometry_msg.pose.pose.position.z = position.z();
 
         Eigen::Quaterniond q(pose.block<3, 3>(0, 0));
         odometry_msg.pose.pose.orientation.x = q.x();
@@ -117,27 +165,27 @@ private:
         odometry_msg.pose.pose.orientation.z = q.z();
         odometry_msg.pose.pose.orientation.w = q.w();
 
-
-        RCLCPP_INFO_STREAM(this->get_logger(), "Estimated pose: " << std::endl << this->curr_pose.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
-
         this->odometry_pub->publish(odometry_msg);
     }
 
     void motionEstimation(void)
     {
+        auto start = std::chrono::high_resolution_clock::now();
+
         double cx = this->lcam_intrinsics.cx();
         double cy = this->lcam_intrinsics.cy();
         double fx = this->lcam_intrinsics.fx();
         double fy = this->lcam_intrinsics.fy();
         
         double depth_scale = fx * this->baseline;
+        // Eigen::Map<Eigen::Matrix3d> K(this->lcam_intrinsics.cameraMatrix().ptr<double>(), 3, 3);
         
         std::vector<cv::Point3d> pts_3d;
         std::vector<cv::Point2d> pts_2d;
         for (cv::DMatch &m : this->good_matches)
         {
             // Calculate previous image 3D point
-            cv::Point2d p = this->prev_img_kps[m.trainIdx].pt;
+            cv::Point2d p = this->prev_img_kps[m.queryIdx].pt;
             // Needs to use uchar because depth map is mono8 image
             double z = static_cast<double>(this->curr_depth_map.at<uchar>(p.y, p.x));
             if (z == 0.0)
@@ -149,10 +197,10 @@ private:
             double x = (p.x - cx) * z / fx;
             double y = (p.y - cy) * z / fy;
 
-            pts_3d.push_back(cv::Point3f(x, y, z));
+            pts_3d.push_back(cv::Point3d(x, y, z));
             
             // Get current image 2D point
-            pts_2d.push_back(this->curr_img_kps[m.queryIdx].pt);
+            pts_2d.push_back(this->curr_img_kps[m.trainIdx].pt);
 
             // RCLCPP_INFO_STREAM(this->get_logger(), "DS: " << depth_scale << " Points: " << x << ", " << y << ", " << z << " | " << p.x << ", " << p.y << " | " << this->curr_img_kps[m.queryIdx].pt.x << ", " << this->curr_img_kps[m.queryIdx].pt.y);
         }
@@ -167,19 +215,27 @@ private:
         RCLCPP_INFO(this->get_logger(), "Estimating motion. Points: %ld", pts_3d.size());
         cv::Mat rvec, tvec, R;        
         try {
-            cv::solvePnPRansac(pts_3d, pts_2d, this->lcam_intrinsics.cameraMatrix(), this->lcam_intrinsics.distCoeffs(), rvec, tvec);
+            cv::solvePnPRansac(pts_3d, pts_2d, this->lcam_intrinsics.cameraMatrix(), this->lcam_intrinsics.distCoeffs(), rvec, tvec, false, 100, 8.0, 0.99, cv::noArray(), cv::SOLVEPNP_AP3P);
         } catch (cv::Exception &e) {
             RCLCPP_ERROR(this->get_logger(), "PnP failed: %s", e.what());
             return;
         }
         cv::Rodrigues(rvec, R);
 
-        // Convert to Transformation matrix and update current pose
+        // Convert to Transformation matrix
         Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
         T.block<3, 3>(0, 0) = Eigen::Map<Eigen::Matrix3d>(R.ptr<double>());
         T(0, 3) = tvec.at<double>(0);
         T(1, 3) = tvec.at<double>(1);
         T(2, 3) = tvec.at<double>(2);
+
+        RCLCPP_INFO_STREAM(this->get_logger(), "Estimated pose: " << std::endl << T.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
+
+        // Only accept pose if dominant motion is foward
+        // if ((T(2, 3) > 0) || (abs(T(2, 3)) < abs(T(0, 3))) || (abs(T(2, 3)) < abs(T(1, 3))))
+        // {
+        //     RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
+        // }
 
         // Filter outliers using velocity
         Eigen::Vector3d new_velocity = T.block<3, 1>(0, 3) - this->curr_pose.block<3, 1>(0, 3);
@@ -200,28 +256,23 @@ private:
             if ((nv_norm - median_velocity) > this->velocity_threshold)
             {
                 RCLCPP_WARN(this->get_logger(), "Velocity outlier detected. Skipping frame. %f", (nv_norm - median_velocity));
-                // return;
+                return;
             }
         }
 
+        // Update pose and publish odometry
         this->curr_pose *= T;
 
         this->publishOdometry(this->curr_pose);
+
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
+        RCLCPP_INFO_STREAM(this->get_logger(), "Motion estimation time: " << duration.count() << "ms");
     }
 
-    void depth_callback(const sensor_msgs::msg::Image::ConstSharedPtr &depth_msg)
+    void stereo_callback(const sensor_msgs::msg::Image::ConstSharedPtr &lcam_msg, const sensor_msgs::msg::Image::ConstSharedPtr &rcam_msg)
     {
-        this->depth_buffer.push_front(*depth_msg);
-
-        if (this->depth_buffer.size() > this->depth_buffer_size)
-        {
-            this->depth_buffer.pop_back();
-        }
-    }
-
-    void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr &lcam_msg)
-    {
-        this->next_img = *lcam_msg;
+        this->next_limg = *lcam_msg;
+        this->next_rimg = *rcam_msg;
     }   
 
     void publishFeatureMap(void)
@@ -255,14 +306,17 @@ public:
         
         // Parse config
         std::string lcam_topic = preset_config["left_cam"]["topic"].as<std::string>();
+        std::string rcam_topic = preset_config["right_cam"]["topic"].as<std::string>();
         std::string lcam_intrinsics_file = preset_config["left_cam"]["intrinsics_file"].as<std::string>();
         std::string rcam_intrinsics_file = preset_config["right_cam"]["intrinsics_file"].as<std::string>();
-        std::string depth_topic = preset_config["depth_topic"].as<std::string>();
+        std::string depth_estimation_service = preset_config["depth_estimation_service"].as<std::string>();
         std::string feature_extractor_service = preset_config["feature_extractor_service"].as<std::string>();
         std::string feature_viz_topic = preset_config["feature_viz"].as<std::string>();
+        std::string depth_viz_topic = preset_config["depth_viz"].as<std::string>();
         std::string odometry_topic = preset_config["vo_odom_topic"].as<std::string>();
         this->undistort = preset_config["undistort"].as<bool>();
         this->baseline = preset_config["baseline"].as<double>();
+        this->estimate_depth = preset_config["depth"].as<bool>();
 
         YAML::Node stereo_vo_config = main_config["stereo_vo"];
         this->enable_viz = stereo_vo_config["debug_visualization"].as<bool>();
@@ -273,15 +327,22 @@ public:
         this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
         this->rcam_intrinsics = OpenCVConversions::CameraIntrinsics(rcam_intrinsics_file);
 
-        // Initialize subscribers and client
-        this->lcam_sub = this->create_subscription<sensor_msgs::msg::Image>(lcam_topic, 10, std::bind(&StereoVONode::img_callback, this, std::placeholders::_1));
-        this->depth_subscriber = this->create_subscription<sensor_msgs::msg::Image>(depth_topic, 10, std::bind(&StereoVONode::depth_callback, this, std::placeholders::_1));
+        // Initialize subscribers and time synchronizer
+        this->lcam_sub.subscribe(this, lcam_topic);
+        this->rcam_sub.subscribe(this, rcam_topic);        
+        this->cam_sync = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(10), lcam_sub, rcam_sub);
+        this->cam_sync->setMaxIntervalDuration(rclcpp::Duration::from_seconds(0.04));
+        this->cam_sync->registerCallback(std::bind(&StereoVONode::stereo_callback, this, std::placeholders::_1, std::placeholders::_2));
+
+        // Initialize clients
+        this->depth_estimator_client = this->create_client<vio_msgs::srv::DepthEstimator>(depth_estimation_service);
         this->feature_extractor_client = this->create_client<vio_msgs::srv::FeatureExtractor>(feature_extractor_service);
 
         // Initialize publishers
         if (this->enable_viz)
         {
             this->feature_map_pub = this->create_publisher<sensor_msgs::msg::Image>(feature_viz_topic, 10);
+            this->depth_map_pub = this->create_publisher<sensor_msgs::msg::Image>(depth_viz_topic, 10);
         }
         this->odometry_pub = this->create_publisher<nav_msgs::msg::Odometry>(odometry_topic, 10);
 
@@ -297,79 +358,74 @@ public:
         {
             this->executor->spin_some(std::chrono::milliseconds(300));
             
-            if (this->next_img.header.stamp == rclcpp::Time(0))
+            if (this->next_limg.header.stamp == rclcpp::Time(0))
             {
                 continue;
             }
 
-            rclcpp::Time curr_img_stamp = this->next_img.header.stamp;
+            auto pose_estimation_start = std::chrono::high_resolution_clock::now();
+
+            rclcpp::Time curr_img_stamp = this->next_limg.header.stamp;
 
             // Undistort images
             cv::Mat rect_limg;
+            cv::Mat rect_rimg;
             if (this->undistort)
             {
-               rect_limg = this->lcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(this->next_img));
+               rect_limg = this->lcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(this->next_limg));
+               rect_rimg = this->rcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(this->next_rimg));
             } else {
-                rect_limg = OpenCVConversions::toCvImage(this->next_img);
-            }
-
-            this->next_img.header.stamp = rclcpp::Time(0);
-
-            // Feature extraction request
-            auto feat_response = this->featureExtractionRequest(rect_limg);
-            if (feat_response == nullptr)
-            {
-                continue;
+                rect_limg = OpenCVConversions::toCvImage(this->next_limg);
+                rect_rimg = OpenCVConversions::toCvImage(this->next_rimg);
             }
 
             // Update image variables
             this->prev_img = this->curr_img;
             this->curr_img = rect_limg;
+            this->next_limg.header.stamp = this->next_rimg.header.stamp = rclcpp::Time(0);
+
+            // Send requests
+            this->featureExtractionRequest(rect_limg);
+            this->depthEstimationRequest(rect_limg, rect_rimg);
+
+            while (this->feature_response == nullptr)
+            {
+                this->executor->spin_some(std::chrono::milliseconds(100));
+            }
+            while (this->depth_response == nullptr)
+            {
+                this->executor->spin_some(std::chrono::milliseconds(100));
+            }
 
             // Convert to OpenCV types
-            cv::Mat curr_img_desc = OpenCVConversions::toCvImage(feat_response->curr_img_desc);
-            this->curr_img_kps = OpenCVConversions::toCvKeyPoints(feat_response->curr_img_kps);
-            this->good_matches = OpenCVConversions::toCvDMatches(feat_response->good_matches);
+            cv::Mat curr_img_desc = OpenCVConversions::toCvImage(feature_response->curr_img_desc);
+            this->curr_img_kps = OpenCVConversions::toCvKeyPoints(feature_response->curr_img_kps);
+            this->good_matches = OpenCVConversions::toCvDMatches(feature_response->good_matches);
+
+            this->curr_depth_map = OpenCVConversions::toCvImage(depth_response->depth_map, "mono8");
 
             // Publish feature visualization
             if (this->enable_viz && !(this->prev_img.empty() || this->curr_img.empty()) && (this->good_matches.size() > 0))
             {
+                RCLCPP_INFO(this->get_logger(), "Publishing visualization.");
                 this->publishFeatureMap();
+
+                if (this->estimate_depth)
+                {   
+                    this->depth_map_pub->publish(depth_response->depth_map);
+                }
             }
 
-            // Search for depth map
-            if (this->depth_buffer.size() > 0)
-            {
-                bool depth_found = false;
-                RCLCPP_INFO(this->get_logger(), "Searching for the closest depth timestamp: %ld", curr_img_stamp.nanoseconds());
+            this->depth_response = nullptr;
+            this->feature_response = nullptr;
 
-                for (sensor_msgs::msg::Image depth_msg : this->depth_buffer)
-                {
-                    rclcpp::Time depth_time = depth_msg.header.stamp;
-
-                    RCLCPP_INFO(this->get_logger(), "   %ld", depth_time.nanoseconds());
-                    if (depth_time.nanoseconds() <= curr_img_stamp.nanoseconds())
-                    {   
-                        this->curr_depth_map = OpenCVConversions::toCvImage(depth_msg, "");
-                        depth_found = true;
-                        break;
-                    }
-                }
-
-                // Run motion estimation
-                if (depth_found)
-                {
-                    this->motionEstimation();
-                } else {
-                    RCLCPP_WARN(this->get_logger(), "Could not find matching depth timestamp.");
-                }
-                
-            } else {
-                RCLCPP_WARN(this->get_logger(), "Depth buffer is empty.");
-            }
+            this->motionEstimation();
 
             this->prev_img_desc = curr_img_desc;
             this->prev_img_kps = curr_img_kps;
+
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - pose_estimation_start);
+            RCLCPP_INFO_STREAM(this->get_logger(), "Total pose estimation time: " << duration.count() << "ms");
         }
     }
 };
