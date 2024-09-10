@@ -94,6 +94,7 @@ private:
         RCLCPP_INFO_ONCE(this->get_logger(), "Started publishing markers...");
 
         this->msgs[idx].header.stamp = this->now();
+        this->msgs[idx].header.frame_id = "camera";
         this->msgs[idx].points.push_back(msg->pose.pose.position);
         this->markers_publishers[idx]->publish(this->msgs[idx]);
     }
@@ -103,6 +104,7 @@ private:
         RCLCPP_INFO_ONCE(this->get_logger(), "Started publishing markers...");
 
         this->msgs[idx].header.stamp = this->now();
+        this->msgs[idx].header.frame_id = "world";
         this->msgs[idx].points.push_back(msg->point);
         this->markers_publishers[idx]->publish(this->msgs[idx]);
     }

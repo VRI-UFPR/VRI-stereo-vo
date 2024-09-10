@@ -161,6 +161,11 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
         rimg_rect = this->rcam_intrinsics.undistortImage(img_right);
     }
 
+    // Downsample images
+    cv::Size new_size(this->img_size.height / 2, this->img_size.width / 2);
+    cv::resize(limg_rect, limg_rect, new_size);
+    cv::resize(rimg_rect, rimg_rect, new_size);
+
     cv::Mat disparity_map;
     
     if (this->using_cuda)
@@ -182,18 +187,11 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
         stereo_matcher->compute(limg_rect, rimg_rect, disparity_map);
     }
 
-    // // Normalize
+    // Normalize
     cv::normalize(disparity_map, disparity_map, 0, 255, cv::NORM_MINMAX, CV_8UC1);
-    // disparity_map.convertTo(disparity_map, CV_64F);
 
-    // double fc = this->lcam_intrinsics.fx() * this->lcam_intrinsics.tlVector().at<double>(1);
-
-    // cv::Mat depth_map = cv::Mat::zeros(disparity_map.size(), CV_64F);
-    // cv::Mat mask = (disparity_map == 0.0);
-    // disparity_map.setTo(0.001, mask);
-    // disparity_map = fc / disparity_map;
-
-    // cv::normalize(disparity_map, disparity_map, 0, 65536, cv::NORM_MINMAX, CV_16UC1);
+    // Upsample
+    cv::resize(disparity_map, disparity_map, this->img_size);
 
     return disparity_map;
 }

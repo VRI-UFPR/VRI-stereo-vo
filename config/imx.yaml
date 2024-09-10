@@ -38,8 +38,9 @@ right_cam:
 
 vo_odom_topic: "/stereo_vo/odom"
 feature_viz: "/stereo_vo/feature_viz"
+depth_viz: "/stereo_vo/depth_viz"
 
-depth_topic: "/stereo_vo/depth_estimation"
+depth_estimation_service: "/stereo_vo/depth_estimation"
 
 feature_extractor_service: "/stereo_vo/feature_extraction"
 

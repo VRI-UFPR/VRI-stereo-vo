@@ -34,22 +34,60 @@ private:
 
     cv::Ptr<cv::DescriptorMatcher> matcher;
 
+    double distance_threshold = 20.0;
+    int grid_factor = 1;
+
     void featureExtract(const cv::Mat &img, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
     {
-        #ifdef USE_CUDA
-            // Upload to gpu
-            cv::cuda::GpuMat cuda_img;
-            cuda_img.upload(img);
+        // Divide image into grids
+        int grid_width = img.cols / this->grid_factor;
+        int grid_height = img.rows / this->grid_factor;
+        int max_width = img.cols - (img.cols % grid_width);
+        int max_height = img.rows - (img.rows % grid_height);
 
-            cv::cuda::GpuMat cuda_keypoints, cuda_descriptors;
-            this->orb_detector->detectAndComputeAsync(cuda_img, cv::cuda::GpuMat(), cuda_keypoints, cuda_descriptors);
+        for (int i = 0; i < max_width; i += grid_width)
+        {
+            for (int j = 0; j < max_height; j += grid_height)
+            {
+                cv::Rect roi(i, j, grid_width, grid_height);
+                cv::Mat img_roi = img(roi);
 
-            // Download from gpu
-            this->orb_detector->convert(cuda_keypoints, keypoints);
-            cuda_descriptors.download(descriptors);
-        #else
-            this->orb_detector->detectAndCompute(img, cv::noArray(), keypoints, descriptors);
-        #endif
+                std::vector<cv::KeyPoint> kp_roi;
+                cv::Mat desc_roi;
+
+                #ifdef USE_CUDA
+                    // Upload to gpu
+                    cv::cuda::GpuMat cuda_img;
+                    cuda_img.upload(img_roi);
+
+                    cv::cuda::GpuMat cuda_keypoints, cuda_descriptors;
+                    try
+                    {
+                        this->orb_detector->detectAndComputeAsync(cuda_img, cv::cuda::GpuMat(), cuda_keypoints, cuda_descriptors);
+                    }
+                    catch(const std::exception& e)
+                    {
+                        RCLCPP_ERROR_STREAM(this->get_logger(), "Error: " << e.what());
+                        continue;
+                    }
+                    
+                    // Download from gpu
+                    this->orb_detector->convert(cuda_keypoints, kp_roi);
+                    cuda_descriptors.download(desc_roi);
+                #else
+                    this->orb_detector->detectAndCompute(img_roi, cv::noArray(), kp_roi, desc_roi);
+                #endif
+
+                for (cv::KeyPoint &k : kp_roi)
+                {
+                    k.pt.x += j;
+                    k.pt.y += i;
+                    keypoints.push_back(k);
+                }
+
+                descriptors.push_back(desc_roi);
+            }
+        }
     }
 
     void ratioTest(std::vector<std::vector<cv::DMatch> > &matches)
@@ -59,7 +97,7 @@ private:
         {
             if (matchIterator->size() > 1)
             {
-                if ((*matchIterator)[0].distance / (*matchIterator)[1].distance > 0.7)
+                if ((*matchIterator)[0].distance / (*matchIterator)[1].distance > 0.8)
                 {
                     matchIterator->clear(); 
                 }
@@ -106,10 +144,11 @@ private:
         this->matcher->knnMatch(prev_img_desc, curr_img_desc, matches_pc, 2);
         this->matcher->knnMatch(curr_img_desc, prev_img_desc, matches_cp, 2);
 
-        // Remove matches per Lewe's ratio test
+        // Remove matches per Lewe's ratio test // 1403636608963555500 1403636608763555500
         this->ratioTest(matches_pc);
         this->ratioTest(matches_cp);
 
+        // Symmetry test
         this->symmetryTest(matches_pc, matches_cp, good_matches);    
     }
 
@@ -139,9 +178,8 @@ private:
         response->good_matches = OpenCVConversions::toRosDMatches(good_matches);
 
         auto estimation_end = std::chrono::high_resolution_clock::now();
-        RCLCPP_DEBUG(this->get_logger(), "Feature extraction time: %f ms", 
+        RCLCPP_INFO(this->get_logger(), "Feature extraction time: %f ms", 
             std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
-        RCLCPP_INFO(this->get_logger(), "Feature extraction completed.");
     }
 
 public:
@@ -162,6 +200,8 @@ public:
 
         // Parse parameters
         std::string feature_extractor_service = preset_config["feature_extractor_service"].as<std::string>();
+        this->distance_threshold = main_config["feature_matcher"]["distance_threshold"].as<double>();
+        this->grid_factor = main_config["feature_matcher"]["grid_factor"].as<int>();
 
         // Initialize service
         this->feature_server = this->create_service<vio_msgs::srv::FeatureExtractor>(feature_extractor_service, 

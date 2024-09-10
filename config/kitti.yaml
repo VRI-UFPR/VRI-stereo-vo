@@ -5,7 +5,7 @@ depth: true
 markers: true
 bag: true
 
-bag_name: "MH_01_easy_ros2"
+bag_name: "kitti_data_odometry_gray_sequence_05-ros2_bag"
 
 sensors:
   imu:
@@ -21,20 +21,20 @@ sensors:
         input_stream: ""
 
 im_size:
-  width: 640
-  height: 480
+  width: 1226
+  height: 370
 
-baseline: 0.11004592927 
+baseline: 0.537
 
-undistort: true
+undistort: false
 
 left_cam:
-  topic: "/cam0/image_raw"
-  intrinsics_file: "/workspace/config/intrinsics/euroc_0_intrinsics.yaml"
+  topic: "/kitti/camera_gray_left/image_rect"
+  intrinsics_file: "/workspace/config/intrinsics/kitti_left_intrinsics.yaml"
 
 right_cam:
-  topic: "/cam1/image_raw"
-  intrinsics_file: "/workspace/config/intrinsics/euroc_1_intrinsics.yaml"
+  topic: "/kitti/camera_gray_right/image_rect"
+  intrinsics_file: "/workspace/config/intrinsics/kitti_right_intrinsics.yaml"
 
 vo_odom_topic: "/stereo_vo/odom"
 feature_viz: "/stereo_vo/feature_viz"

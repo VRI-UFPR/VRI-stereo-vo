@@ -31,7 +31,7 @@ def parse_config_file():
 
         # VO arguments
         DeclareLaunchArgument(name="vo_enable", default_value=bool2str(preset_config["vo"]), description="Enable VO pose estimation"),
-        DeclareLaunchArgument(name="estimate_depth", default_value=bool2str(preset_config["depth"]), description="Run depth estimator server"),
+        DeclareLaunchArgument(name="estimate_depth", default_value="true", description="Run depth estimator server"),
         DeclareLaunchArgument(name="enable_viz", default_value=bool2str(preset_config["markers"]), description="Enable markers visualization"),
 
         # Bag arguments
@@ -69,7 +69,7 @@ def launch_setup(context):
         Node(
             package='stereo_vo',
             condition=IfCondition(AndSubstitution(LaunchConfiguration("vo_enable"), LaunchConfiguration("estimate_depth"))),
-            executable='depth_estimator_node',
+            executable='depth_estimator_server',
             parameters=[{'config_file' : MAIN_CONFIG_PATH}],
         ),
         Node(
@@ -90,8 +90,14 @@ def launch_setup(context):
             package='tf2_ros',
             condition=IfCondition(LaunchConfiguration("enable_viz")),
             executable='static_transform_publisher',
-            arguments=['0', '0', '0', '0', '0', '0', 'world', 'camera_link'],
+            arguments=['0', '0', '0', '1.57079633', '0.0', '1.57079633', 'world', 'camera'],
         ),
+        # Node(
+        #     package='tf2_ros',
+        #     condition=IfCondition(LaunchConfiguration("enable_viz")),
+        #     executable='static_transform_publisher',
+        #     arguments=['0', '0', '0', '0', '0', '0', 'laser', 'world'],
+        # ),
 
         # Launch bag file
         ExecuteProcess(
