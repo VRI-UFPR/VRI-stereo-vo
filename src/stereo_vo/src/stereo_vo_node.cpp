@@ -38,10 +38,7 @@ private:
     std::vector<cv::DMatch> good_matches;
     Eigen::Matrix4d curr_pose = Eigen::Matrix4d::Identity();
 
-    // Velocity outlier detection
-    size_t velocity_buffer_size = 10;
-    double velocity_threshold = 5.0;
-    std::vector<double> last_velocities;
+    double reprojection_threshold;
 
     // Camera intrinsics
     OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
@@ -187,7 +184,7 @@ private:
             // Calculate previous image 3D point
             cv::Point2d p = this->prev_img_kps[m.queryIdx].pt;
             // Needs to use uchar because depth map is mono8 image
-            double z = static_cast<double>(this->curr_depth_map.at<uchar>(p.y, p.x));
+            double z = static_cast<double>(this->prev_depth_map.at<uchar>(p.y, p.x));
             if (z == 0.0)
             {
                 continue;
@@ -237,27 +234,24 @@ private:
         //     RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
         // }
 
-        // Filter outliers using velocity
-        Eigen::Vector3d new_velocity = T.block<3, 1>(0, 3) - this->curr_pose.block<3, 1>(0, 3);
-        double nv_norm = new_velocity.norm();
+        // Filter usign reprojection error
+        std::vector<cv::Point2d> projected_pts;
+        cv::projectPoints(pts_3d, rvec, tvec, this->lcam_intrinsics.cameraMatrix(), this->lcam_intrinsics.distCoeffs(), projected_pts);
 
-        RCLCPP_INFO_STREAM(this->get_logger(), "Velocity: " << nv_norm);
-
-        this->last_velocities.push_back(nv_norm);
-        if (this->last_velocities.size() > this->velocity_buffer_size)
+        // Average error
+        double error = 0.0;
+        for (size_t i = 0; i < pts_2d.size(); i++)
         {
-            this->last_velocities.pop_back();
+            error += cv::norm(pts_2d[i] - projected_pts[i]);
         }
+        error /= pts_2d.size();
 
-        if (this->last_velocities.size() == this->velocity_buffer_size)
+        RCLCPP_INFO_STREAM(this->get_logger(), "Reprojection error: " << error);
+
+        if (error > this->reprojection_threshold)
         {
-            std::sort(this->last_velocities.begin(), this->last_velocities.end());
-            double median_velocity = this->last_velocities[this->velocity_buffer_size / 2];
-            if ((nv_norm - median_velocity) > this->velocity_threshold)
-            {
-                RCLCPP_WARN(this->get_logger(), "Velocity outlier detected. Skipping frame. %f", (nv_norm - median_velocity));
-                return;
-            }
+            RCLCPP_WARN(this->get_logger(), "Reprojection error too high. Skipping frame.");
+            return;
         }
 
         // Update pose and publish odometry
@@ -320,8 +314,7 @@ public:
 
         YAML::Node stereo_vo_config = main_config["stereo_vo"];
         this->enable_viz = stereo_vo_config["debug_visualization"].as<bool>();
-        this->velocity_buffer_size = stereo_vo_config["velocity_buffer_size"].as<size_t>();
-        this->velocity_threshold = stereo_vo_config["velocity_threshold"].as<double>();
+        this->reprojection_threshold = stereo_vo_config["reprojection_threshold"].as<double>();
 
         // Load camera intrinsics
         this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
@@ -423,6 +416,7 @@ public:
 
             this->prev_img_desc = curr_img_desc;
             this->prev_img_kps = curr_img_kps;
+            this->prev_depth_map = curr_depth_map;
 
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - pose_estimation_start);
             RCLCPP_INFO_STREAM(this->get_logger(), "Total pose estimation time: " << duration.count() << "ms");

@@ -3,8 +3,7 @@ preset: "kitti"
 
 stereo_vo:
   debug_visualization: true
-  velocity_buffer_size: 10
-  velocity_threshold: 1000.0
+  reprojection_threshold: 50.0
 
 depth_estimator_params:    
 
