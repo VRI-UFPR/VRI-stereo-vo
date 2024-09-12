@@ -58,13 +58,14 @@ install(TARGETS
   feature_extractor_server
   DESTINATION lib/${PROJECT_NAME})
 
-# visualization_node
-add_executable(visualization_node src/visualization_node.cpp)
-ament_target_dependencies(visualization_node rclcpp nav_msgs visualization_msgs yaml-cpp)
-target_link_libraries( visualization_node yaml-cpp::yaml-cpp )
-install(TARGETS
-  visualization_node
-  DESTINATION lib/${PROJECT_NAME})
+# Install Python modules
+ament_python_install_package(${PROJECT_NAME})
+
+# Install Python executables
+install(PROGRAMS
+  scripts/visualization_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 # Copy launch files
 install(DIRECTORY

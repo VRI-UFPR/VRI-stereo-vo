@@ -12,8 +12,8 @@ depth_estimator_params:
   # Algorithm specific parameters
   # Set to -1 to use default/recommended values by OpenCV 
   # (refer to https://docs.opencv.org/3.4/d2/d6e/classcv_1_1StereoMatcher.html)
-  num_disparities: 32
-  block_size: 3  # Must be odd
+  num_disparities: 56  # Must be divisible by 8
+  block_size: 5  # Must be odd
   iterations: 3
   levels: 3
   nr_plane: 4

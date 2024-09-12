@@ -56,7 +56,6 @@ private:
     // Depth subscriber
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_subscriber;
     std::deque<sensor_msgs::msg::Image> depth_buffer;
-    size_t depth_buffer_size = 5;
 
     // Visualization publishers
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr feature_map_pub;
@@ -152,9 +151,9 @@ private:
 
         RCLCPP_INFO_STREAM(this->get_logger(), "Estimated position: " << position.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
 
-        odometry_msg.pose.pose.position.x = position.x();
-        odometry_msg.pose.pose.position.y = position.y();
-        odometry_msg.pose.pose.position.z = position.z();
+        odometry_msg.pose.pose.position.x = position.x() * -10.0;
+        odometry_msg.pose.pose.position.y = position.y() * 10.0;
+        odometry_msg.pose.pose.position.z = position.z() * 10.0;
 
         Eigen::Quaterniond q(pose.block<3, 3>(0, 0));
         odometry_msg.pose.pose.orientation.x = q.x();
@@ -229,7 +228,7 @@ private:
         RCLCPP_INFO_STREAM(this->get_logger(), "Estimated pose: " << std::endl << T.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
 
         // Only accept pose if dominant motion is foward
-        // if ((T(2, 3) > 0) || (abs(T(2, 3)) < abs(T(0, 3))) || (abs(T(2, 3)) < abs(T(1, 3))))
+        // if ((T(2, 3) < 0) || (abs(T(2, 3)) < abs(T(0, 3))) || (abs(T(2, 3)) < abs(T(1, 3))))
         // {
         //     RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
         // }
@@ -255,7 +254,7 @@ private:
         }
 
         // Update pose and publish odometry
-        this->curr_pose *= T;
+        this->curr_pose *= T.inverse();
 
         this->publishOdometry(this->curr_pose);
 

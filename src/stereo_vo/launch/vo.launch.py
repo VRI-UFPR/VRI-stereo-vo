@@ -83,14 +83,14 @@ def launch_setup(context):
         Node(
             package='stereo_vo',
             condition=IfCondition(LaunchConfiguration("enable_viz")),
-            executable='visualization_node',
+            executable='visualization_node.py',
             parameters=[{'config_file' : MAIN_CONFIG_PATH}],
         ),
         Node(
             package='tf2_ros',
             condition=IfCondition(LaunchConfiguration("enable_viz")),
             executable='static_transform_publisher',
-            arguments=['0', '0', '0', '1.57079633', '0.0', '1.57079633', 'world', 'camera'],
+            arguments=['0', '0', '0', '1.57079633', '1.57079633', '0.0', 'camera', 'world'],
         ),
         # Node(
         #     package='tf2_ros',
