@@ -23,6 +23,7 @@ private:
     void initStereoBM(const int ndisp, const int block_size);
     void initStereoSGBM(const int ndisp, const int block_size);
     void initCudaBM(const int ndisp, const int block_size);
+    void initCudaSGM(const int ndisp);
     void initBeliefPropagation(const cv::Size im_size, const int ndisp, const int iter, const int levels);
     void initConstantSpaceBP(const cv::Size im_size, const int ndisp, const int iter, const int levels, const int nr_plane);
 
@@ -70,6 +71,23 @@ void DepthEstimator::initCudaBM(const int ndisp, const int block_size)
     #endif
 }
 
+void DepthEstimator::initCudaSGM(const int ndisp)
+{
+    #ifdef USE_CUDA
+        // int _ndisp = (ndisp > 0) ? ndisp : 128;
+
+        // this->stereo_matcher = cv::cuda::createStereoSGM(0, _ndisp);
+
+        // this->initialized = true;
+        // this->using_cuda = true;
+        (void)ndisp;
+        std::cerr << "[Depth Estimator] Cuda SGM is not implemented in this version of OpenCV." << std::endl;
+    #else
+        // Avoid warning
+        (void)ndisp;
+        std::cerr << "[Depth Estimator] CUDA not enabled. Cannot use cuda SGM." << std::endl;
+    #endif
+}
 
 void DepthEstimator::initBeliefPropagation(const cv::Size im_size, const int ndisp, const int iter, const int levels)
 {
@@ -89,7 +107,7 @@ void DepthEstimator::initBeliefPropagation(const cv::Size im_size, const int ndi
     #else
         // Avoid warning
         (void)im_size; (void)ndisp; (void)iter; (void)levels;
-        std::cerr << "[Depth Estimator] CUDA not enabled. Cannot use cuda stereo matcher." << std::endl;
+        std::cerr << "[Depth Estimator] CUDA not enabled. Cannot use belief propagation." << std::endl;
     #endif
 }
 
@@ -112,7 +130,7 @@ void DepthEstimator::initConstantSpaceBP(const cv::Size im_size, const int ndisp
     #else
         // Avoid warning
         (void)im_size; (void)ndisp; (void)iter; (void)levels; (void)nr_plane;
-        std::cerr << "[Depth Estimator] CUDA not enabled. Cannot use cuda stereo matcher." << std::endl;
+        std::cerr << "[Depth Estimator] CUDA not enabled. Cannot use constant space BP." << std::endl;
     #endif
 }
 
@@ -138,6 +156,8 @@ DepthEstimator::DepthEstimator(const YAML::Node &config, const std::string lcam_
         this->initStereoSGBM(ndisp, block_size);
     else if (algorithm == "cuda_bm")
         this->initCudaBM(ndisp, block_size);
+    else if (algorithm == "cuda_sgm")
+        this->initCudaSGM(ndisp);
     else if (algorithm == "belief_propagation")
         this->initBeliefPropagation(img_size, ndisp, iter, levels);
     else if (algorithm == "constant_space_bp")

@@ -34,7 +34,6 @@ private:
 
     cv::Ptr<cv::DescriptorMatcher> matcher;
 
-    double distance_threshold = 20.0;
     int grid_factor = 1;
 
     void featureExtract(const cv::Mat &img, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
@@ -97,7 +96,7 @@ private:
         {
             if (matchIterator->size() > 1)
             {
-                if ((*matchIterator)[0].distance / (*matchIterator)[1].distance > 0.8)
+                if ((*matchIterator)[0].distance / (*matchIterator)[1].distance > 0.7)
                 {
                     matchIterator->clear(); 
                 }
@@ -144,7 +143,7 @@ private:
         this->matcher->knnMatch(prev_img_desc, curr_img_desc, matches_pc, 2);
         this->matcher->knnMatch(curr_img_desc, prev_img_desc, matches_cp, 2);
 
-        // Remove matches per Lewe's ratio test // 1403636608963555500 1403636608763555500
+        // Remove matches per Lewe's ratio test
         this->ratioTest(matches_pc);
         this->ratioTest(matches_cp);
 
@@ -200,7 +199,6 @@ public:
 
         // Parse parameters
         std::string feature_extractor_service = preset_config["feature_extractor_service"].as<std::string>();
-        this->distance_threshold = main_config["feature_matcher"]["distance_threshold"].as<double>();
         this->grid_factor = main_config["feature_matcher"]["grid_factor"].as<int>();
 
         // Initialize service

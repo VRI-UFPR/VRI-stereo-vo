@@ -39,6 +39,8 @@ private:
     Eigen::Matrix4d curr_pose = Eigen::Matrix4d::Identity();
 
     double reprojection_threshold;
+    std::vector<double> reproj_erros;
+    const size_t max_reproj_errors = 10;
 
     // Camera intrinsics
     OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
@@ -62,6 +64,7 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_map_pub;
     bool enable_viz = false;
     bool estimate_depth = true;
+    std::vector<double> odom_scale = {1.0, 1.0, 1.0};
 
     // Clients
     rclcpp::Client<vio_msgs::srv::FeatureExtractor>::SharedPtr feature_extractor_client;
@@ -151,9 +154,9 @@ private:
 
         RCLCPP_INFO_STREAM(this->get_logger(), "Estimated position: " << position.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
 
-        odometry_msg.pose.pose.position.x = position.x() * -10.0;
-        odometry_msg.pose.pose.position.y = position.y() * 10.0;
-        odometry_msg.pose.pose.position.z = position.z() * 10.0;
+        odometry_msg.pose.pose.position.x = position.x() * this->odom_scale[0];
+        odometry_msg.pose.pose.position.y = position.y() * this->odom_scale[1];
+        odometry_msg.pose.pose.position.z = position.z() * this->odom_scale[2];
 
         Eigen::Quaterniond q(pose.block<3, 3>(0, 0));
         odometry_msg.pose.pose.orientation.x = q.x();
@@ -198,7 +201,6 @@ private:
             // Get current image 2D point
             pts_2d.push_back(this->curr_img_kps[m.trainIdx].pt);
 
-            // RCLCPP_INFO_STREAM(this->get_logger(), "DS: " << depth_scale << " Points: " << x << ", " << y << ", " << z << " | " << p.x << ", " << p.y << " | " << this->curr_img_kps[m.queryIdx].pt.x << ", " << this->curr_img_kps[m.queryIdx].pt.y);
         }
 
         // Solve PnP
@@ -227,12 +229,6 @@ private:
 
         RCLCPP_INFO_STREAM(this->get_logger(), "Estimated pose: " << std::endl << T.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
 
-        // Only accept pose if dominant motion is foward
-        // if ((T(2, 3) < 0) || (abs(T(2, 3)) < abs(T(0, 3))) || (abs(T(2, 3)) < abs(T(1, 3))))
-        // {
-        //     RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
-        // }
-
         // Filter usign reprojection error
         std::vector<cv::Point2d> projected_pts;
         cv::projectPoints(pts_3d, rvec, tvec, this->lcam_intrinsics.cameraMatrix(), this->lcam_intrinsics.distCoeffs(), projected_pts);
@@ -249,8 +245,15 @@ private:
 
         if (error > this->reprojection_threshold)
         {
-            RCLCPP_WARN(this->get_logger(), "Reprojection error too high. Skipping frame.");
+            RCLCPP_WARN(this->get_logger(), "Motion rejected due to high reprojection error.");
             return;
+        }
+
+        // Only accept pose if dominant motion is foward
+        if ((T(2, 3) > 0) || (abs(T(2, 3)) < abs(T(0, 3))) || (abs(T(2, 3)) < abs(T(1, 3))))
+        {
+            RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
+            // return;
         }
 
         // Update pose and publish odometry
@@ -310,6 +313,7 @@ public:
         this->undistort = preset_config["undistort"].as<bool>();
         this->baseline = preset_config["baseline"].as<double>();
         this->estimate_depth = preset_config["depth"].as<bool>();
+        this->odom_scale = preset_config["odom_scale"].as<std::vector<double>>();
 
         YAML::Node stereo_vo_config = main_config["stereo_vo"];
         this->enable_viz = stereo_vo_config["debug_visualization"].as<bool>();
@@ -394,7 +398,7 @@ public:
             this->curr_img_kps = OpenCVConversions::toCvKeyPoints(feature_response->curr_img_kps);
             this->good_matches = OpenCVConversions::toCvDMatches(feature_response->good_matches);
 
-            this->curr_depth_map = OpenCVConversions::toCvImage(depth_response->depth_map, "mono8");
+            this->curr_depth_map = OpenCVConversions::toCvImage(depth_response->depth_map, "");
 
             // Publish feature visualization
             if (this->enable_viz && !(this->prev_img.empty() || this->curr_img.empty()) && (this->good_matches.size() > 0))

@@ -52,24 +52,20 @@ private:
             rclcpp::Time req_time = request->left_image.header.stamp;
 
             // Find closest timestamp
-            cv::Mat depth_img_cv;
+            sensor_msgs::msg::Image depth_img_cv = OpenCVConversions::toRosImage(cv::Mat(request->left_image.height, request->left_image.width, CV_8UC1, cv::Scalar(0)), "mono8");
             uint64_t min_diff = UINT64_MAX;
-            for (const auto &img : this->depth_buffer)
+            for (auto img : this->depth_buffer)
             {
                 rclcpp::Time img_time = img.header.stamp;
                 double diff = std::abs(req_time.nanoseconds() - img_time.nanoseconds());
                 if (diff < min_diff)
                 {
                     min_diff = diff;
-                    depth_img_cv = OpenCVConversions::toCvImage(img);
+                    depth_img_cv = sensor_msgs::msg::Image(img);
                 }
             }
 
-            // Convert from 32FC1 to mono8
-            cv::Mat depth_img_mono8;
-            depth_img_cv.convertTo(depth_img_mono8, CV_8U, 255.0 / 10.0);
-
-            response->depth_map = OpenCVConversions::toRosImage(depth_img_mono8);
+            response->depth_map = depth_img_cv;
         }
 
         auto estimation_end = std::chrono::high_resolution_clock::now();
