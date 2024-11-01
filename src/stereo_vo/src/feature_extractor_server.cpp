@@ -27,7 +27,7 @@ private:
     rclcpp::Service<vio_msgs::srv::FeatureExtractor>::SharedPtr feature_server;
 
     #ifdef USE_CUDA
-        cv::Ptr<cv::cuda::ORB> feat_extractor;
+        cv::Ptr<cv::cuda::ORB> cuda_orb_extractor;
     #else
         cv::Ptr<cv::Feature2D> feat_extractor;
     #endif
@@ -54,41 +54,35 @@ private:
         #endif
     }
 
-    void ratioTest(std::vector<std::vector<cv::DMatch> > &matches)
+    std::vector<cv::DMatch> ratioTest(std::vector<std::vector<cv::DMatch>> &matches)
     {
+        std::vector<cv::DMatch> good_matches;
+
         // As per Lowe's ratio test
         for ( std::vector<std::vector<cv::DMatch> >::iterator matchIterator= matches.begin(); matchIterator!= matches.end(); ++matchIterator)
         {
-            if (matchIterator->size() > 1)
-            {
-                if ((*matchIterator)[0].distance / (*matchIterator)[1].distance > this->distance_ratio)
-                {
-                    matchIterator->clear(); 
-                }
-            }
-            else
-            { 
-                matchIterator->clear(); 
-            }
-        }
-    }
-
-    void symmetryTest(const std::vector<std::vector<cv::DMatch> >& matches1, const std::vector<std::vector<cv::DMatch> >& matches2, std::vector<cv::DMatch>& symMatches)
-    {
-        for (std::vector<std::vector<cv::DMatch>>::const_iterator matchIterator1 = matches1.begin(); matchIterator1 != matches1.end(); ++matchIterator1)
-        {
-            if (matchIterator1->empty() || matchIterator1->size() < 2)
+            if (matchIterator->size() < 2)
                 continue;
 
-            for (std::vector<std::vector<cv::DMatch> >::const_iterator matchIterator2 = matches2.begin(); matchIterator2 != matches2.end(); ++matchIterator2)
+            if ((*matchIterator)[0].distance < this->distance_ratio * (*matchIterator)[1].distance)
             {
-                if (matchIterator2->empty() || matchIterator2->size() < 2)
-                    continue;
+                good_matches.push_back((*matchIterator)[0]);
+            }
+        }
 
-                // Match symmetry test
-                if ((*matchIterator1)[0].queryIdx == (*matchIterator2)[0].trainIdx && (*matchIterator2)[0].queryIdx == (*matchIterator1)[0].trainIdx)
+        return good_matches;
+    }
+
+    void symmetryTest(const std::vector<cv::DMatch>& matches1, const std::vector<cv::DMatch>& matches2, std::vector<cv::DMatch>& symMatches)
+    {
+        symMatches.clear();
+        for (std::vector<cv::DMatch>::const_iterator matchIterator1 = matches1.begin(); matchIterator1 != matches1.end(); ++matchIterator1)
+        {
+            for (std::vector<cv::DMatch>::const_iterator matchIterator2 = matches2.begin(); matchIterator2 != matches2.end(); ++matchIterator2)
+            {
+                if ((*matchIterator1).queryIdx == (*matchIterator2).trainIdx && (*matchIterator2).queryIdx == (*matchIterator1).trainIdx)
                 {
-                    symMatches.push_back(cv::DMatch((*matchIterator1)[0].queryIdx, (*matchIterator1)[0].trainIdx, (*matchIterator1)[0].distance));
+                    symMatches.push_back(cv::DMatch((*matchIterator1).queryIdx, (*matchIterator1).trainIdx, (*matchIterator1).distance));
                     break;
                 }
             }
@@ -98,6 +92,7 @@ private:
     void featureMatch(const cv::Mat &curr_img_desc, const cv::Mat &prev_img_desc, std::vector<cv::DMatch> &good_matches)
     {
         std::vector<std::vector<cv::DMatch>> matches_pc, matches_cp;
+        std::vector<cv::DMatch> matches_pc_good, matches_cp_good;
 
         // Match features
         if (curr_img_desc.empty() || prev_img_desc.empty())
@@ -108,7 +103,10 @@ private:
         try
         {
             this->matcher->knnMatch(prev_img_desc, curr_img_desc, matches_pc, 2);
+            matches_pc_good = this->ratioTest(matches_pc);
+
             this->matcher->knnMatch(curr_img_desc, prev_img_desc, matches_cp, 2);
+            matches_cp_good = this->ratioTest(matches_cp);
         }
         catch(const std::exception& e)
         {
@@ -116,12 +114,8 @@ private:
             return;
         }
 
-        // Remove matches per Lewe's ratio test
-        this->ratioTest(matches_pc);
-        this->ratioTest(matches_cp);
-
         // Symmetry test
-        this->symmetryTest(matches_pc, matches_cp, good_matches);    
+        this->symmetryTest(matches_pc_good, matches_cp_good, good_matches);
     }
 
     void feature_callback(const std::shared_ptr<vio_msgs::srv::FeatureExtractor::Request> request,std::shared_ptr<vio_msgs::srv::FeatureExtractor::Response> response)
@@ -140,18 +134,23 @@ private:
         std::vector<cv::KeyPoint> curr_img_kp;
         this->featureExtract(curr_img, curr_img_kp, curr_img_desc);
 
+        auto estimation_end = std::chrono::high_resolution_clock::now();
+        RCLCPP_INFO(this->get_logger(), "Feature extraction time: %f ms", 
+            std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
+        estimation_start = std::chrono::high_resolution_clock::now();
+
         // Match features between current and previous image
         std::vector<cv::DMatch> good_matches;
         this->featureMatch(curr_img_desc, prev_img_desc, good_matches);
+
+        estimation_end = std::chrono::high_resolution_clock::now();
+        RCLCPP_INFO(this->get_logger(), "Feature matching time: %f ms", 
+            std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
 
         // Convert to ros message
         response->curr_img_desc = OpenCVConversions::toRosImage(curr_img_desc);
         response->curr_img_kps = OpenCVConversions::toRosKeyPoints(curr_img_kp);
         response->good_matches = OpenCVConversions::toRosDMatches(good_matches);
-
-        auto estimation_end = std::chrono::high_resolution_clock::now();
-        RCLCPP_INFO(this->get_logger(), "Feature extraction time: %f ms", 
-            std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
     }
 
 public:
@@ -174,33 +173,57 @@ public:
         std::string feature_extractor_service = preset_config["feature_extractor_service"].as<std::string>();
         this->distance_ratio = main_config["feature_matcher"]["distance_ratio"].as<double>();
         std::string extractor = main_config["feature_matcher"]["extractor"].as<std::string>();
+        std::string matcher = main_config["feature_matcher"]["matcher"].as<std::string>();
 
         // Initialize service
         this->feature_server = this->create_service<vio_msgs::srv::FeatureExtractor>(feature_extractor_service, 
             std::bind(&FeatureExtractorServer::feature_callback, this, std::placeholders::_1, std::placeholders::_2));
 
-        // Initialize feature extractor
-        if (extractor == "orb")
-        {
-            #ifdef USE_CUDA
-                this->feat_extractor = cv::cuda::ORB::create();
-            #else
-                this->feat_extractor = cv::ORB::create();
-            #endif
+        cv::Ptr<cv::flann::IndexParams> indexParams;
+        cv::Ptr<cv::flann::SearchParams> searchParams;
 
-            cv::Ptr<cv::flann::IndexParams> indexParams = cv::makePtr<cv::flann::LshIndexParams>(6, 12, 1); 
-            // instantiate flann search parameters
-            cv::Ptr<cv::flann::SearchParams> searchParams = cv::makePtr<cv::flann::SearchParams>(50); 
-            this->matcher = new cv::FlannBasedMatcher(indexParams, searchParams);
+        // Initialize feature extractor
+        if ((extractor == "orb") || (extractor == "cuda_orb"))
+        {
+            if (extractor == "cuda_orb")
+            {
+                #ifdef USE_CUDA
+                    this->cuda_orb_extractor = cv::cuda::ORB::create();
+                #else
+                    this->feat_extractor = cv::ORB::create();
+                #endif
+            }
+            else
+            {
+                this->feat_extractor = cv::ORB::create();
+            }
+
+            if (matcher == "flann")
+            {
+                indexParams = cv::makePtr<cv::flann::LshIndexParams>(6, 12, 1); 
+                searchParams = cv::makePtr<cv::flann::SearchParams>(50); 
+            }
         }
         else if (extractor == "sift")
         {
             this->feat_extractor = cv::SIFT::create();
-            this->matcher = cv::BFMatcher::create(cv::NORM_L2, false);
+
+            if (matcher == "flann")
+            {
+                indexParams = cv::makePtr<cv::flann::KDTreeIndexParams>(5);
+                searchParams = cv::makePtr<cv::flann::SearchParams>(50);
+            }
         }
         else
         {
             RCLCPP_ERROR(this->get_logger(), "Invalid feature extractor: %s", extractor.c_str());
+        }
+
+        if (matcher == "flann")
+        {
+            this->matcher = new cv::FlannBasedMatcher(indexParams, searchParams);
+        } else {
+            this->matcher = cv::BFMatcher::create(cv::NORM_L2, false);
         }
 
         RCLCPP_INFO(this->get_logger(), "Feature extractor server started.");
