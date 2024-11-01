@@ -39,12 +39,12 @@ private:
         
         if (this->estimate_depth)
         {
-            cv::Mat img_left = OpenCVConversions::toCvImage(request->left_image, "mono8");
-            cv::Mat img_right = OpenCVConversions::toCvImage(request->right_image, "mono8");
+            cv::Mat img_left = OpenCVConversions::toCvImage(request->left_image);
+            cv::Mat img_right = OpenCVConversions::toCvImage(request->right_image);
             
             cv::Mat depth_map = this->depth_estimator->compute(img_left, img_right);
 
-            response->depth_map = OpenCVConversions::toRosImage(depth_map, "mono8");
+            response->depth_map = OpenCVConversions::toRosImage(depth_map);
         } 
         else {
             // Support for datasets with ground truth depth (i.e. UFPR_MAP)
@@ -52,7 +52,7 @@ private:
             rclcpp::Time req_time = request->left_image.header.stamp;
 
             // Find closest timestamp
-            sensor_msgs::msg::Image depth_img_cv = OpenCVConversions::toRosImage(cv::Mat(request->left_image.height, request->left_image.width, CV_8UC1, cv::Scalar(0)), "mono8");
+            sensor_msgs::msg::Image depth_img_cv = OpenCVConversions::toRosImage(cv::Mat(request->left_image.height, request->left_image.width, CV_8UC1, cv::Scalar(0)));
             uint64_t min_diff = UINT64_MAX;
             for (auto img : this->depth_buffer)
             {
