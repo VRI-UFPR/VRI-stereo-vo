@@ -59,21 +59,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && python3 -m pip install --upgrade pip \
 && python3 -m pip install \
     numpy \
-    Adafruit_Blinka \
-    adafruit_circuitpython_bitbangio \
-    adafruit_circuitpython_bno08x \
-    adafruit_circuitpython_motor \
-    adafruit_circuitpython_tcs34725 \
-    adafruit_circuitpython_vl53l0x \
-    adafruit_circuitpython_ina219 \
-    adafruit_circuitpython_mpu6050 \
-    adafruit_circuitpython_pca9685 \
     pytest \
     rdp \
     scipy \
     setuptools \
-    smbus \
-    Jetson.GPIO 
+    matplotlib
 
 # For packages that we need to compile from source
 WORKDIR /install_deps 
