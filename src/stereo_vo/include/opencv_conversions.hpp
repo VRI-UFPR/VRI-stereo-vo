@@ -140,16 +140,40 @@ namespace OpenCVConversions
         return cv_matches;
 
     }
-
-    sensor_msgs::msg::Image toRosImage(const cv::Mat &image, std::string encoding = "mono8")
+    
+    std::string cvEnc2Str(const int cv_encoding)
     {
-        cv_bridge::CvImage cv_image(std_msgs::msg::Header(), encoding, image);
+        switch (cv_encoding)
+        {
+        case CV_8UC1:
+            return "mono8";
+        
+        case CV_8UC3:
+            return "bgr8";
+
+        case CV_16UC1:
+            return "mono16";
+
+        case CV_16UC3:
+            return "bgr16";
+
+        case CV_32FC1:
+            return "32FC1";
+
+        default:
+            return "mono8";
+        }
+    }
+
+    sensor_msgs::msg::Image toRosImage(const cv::Mat &image)
+    {
+        cv_bridge::CvImage cv_image(std_msgs::msg::Header(), OpenCVConversions::cvEnc2Str(image.type()), image);
         return *(cv_image.toImageMsg());
     }
 
-    cv::Mat toCvImage(const sensor_msgs::msg::Image &image, std::string encoding = "mono8")
+    cv::Mat toCvImage(const sensor_msgs::msg::Image &image)
     {
-        cv_bridge::CvImagePtr cv_image = cv_bridge::toCvCopy(image, encoding);
+        cv_bridge::CvImagePtr cv_image = cv_bridge::toCvCopy(image, image.encoding);
         return cv_image->image;
     }
 

@@ -180,7 +180,7 @@ class VisualizerNode(Node):
 
             self.last_gt = None
 
-            if self.msg_num % 10 == 0:
+            if self.msg_num % 30 == 0:
                 self.plot_erros()
 
     def plot_erros(self):
@@ -213,8 +213,6 @@ class VisualizerNode(Node):
         plt.plot(gt_pts[:, 0], gt_pts[:, 1], label="Ground Truth Path")
         plt.legend()
         plt.savefig(f"/workspace/Data/plots/{self.date_str}_paths.png")
-
-        self.get_logger().info("Visualization node has been shut down.")
 
 def main(args=None):
     rclpy.init(args=args)

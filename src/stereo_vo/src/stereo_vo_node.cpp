@@ -187,7 +187,7 @@ private:
             cv::Point2d p = this->prev_img_kps[m.queryIdx].pt;
             // Needs to use uchar because depth map is mono8 image
             double z = static_cast<double>(this->prev_depth_map.at<uchar>(p.y, p.x));
-            if (z == 0.0)
+            if ((z == 0.0) || (z == -1.0))
             {
                 continue;
             }
@@ -202,9 +202,9 @@ private:
             pts_2d.push_back(this->curr_img_kps[m.trainIdx].pt);
 
         }
-
+        
         // Solve PnP
-        if ((pts_3d.size() < 6) || (pts_3d.size() != pts_2d.size()))
+        if (pts_3d.size() < 6)
         {
             RCLCPP_WARN(this->get_logger(), "Insufficient points for PnP estimation.");
             return;
@@ -252,7 +252,7 @@ private:
         // Only accept pose if dominant motion is foward
         if ((T(2, 3) > 0) || (abs(T(2, 3)) < abs(T(0, 3))) || (abs(T(2, 3)) < abs(T(1, 3))))
         {
-            RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
+            // RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
             // return;
         }
 
@@ -281,7 +281,7 @@ private:
             RCLCPP_WARN(this->get_logger(), "Draw matches failed: %s", e.what());
         }
         
-        this->feature_map_pub->publish(OpenCVConversions::toRosImage(feat_img, "bgr8"));
+        this->feature_map_pub->publish(OpenCVConversions::toRosImage(feat_img));
     }
 
 public:
@@ -398,7 +398,7 @@ public:
             this->curr_img_kps = OpenCVConversions::toCvKeyPoints(feature_response->curr_img_kps);
             this->good_matches = OpenCVConversions::toCvDMatches(feature_response->good_matches);
 
-            this->curr_depth_map = OpenCVConversions::toCvImage(depth_response->depth_map, "");
+            this->curr_depth_map = OpenCVConversions::toCvImage(depth_response->depth_map);
 
             // Publish feature visualization
             if (this->enable_viz && !(this->prev_img.empty() || this->curr_img.empty()) && (this->good_matches.size() > 0))
@@ -422,7 +422,7 @@ public:
             this->prev_depth_map = curr_depth_map;
 
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - pose_estimation_start);
-            RCLCPP_INFO_STREAM(this->get_logger(), "Total pose estimation time: " << duration.count() << "ms");
+            RCLCPP_INFO_STREAM(this->get_logger(), "Total pose estimation time: " << duration.count() << "ms\n\n\n");
         }
     }
 };

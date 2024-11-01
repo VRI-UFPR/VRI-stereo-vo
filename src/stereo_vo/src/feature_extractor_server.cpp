@@ -27,66 +27,31 @@ private:
     rclcpp::Service<vio_msgs::srv::FeatureExtractor>::SharedPtr feature_server;
 
     #ifdef USE_CUDA
-        cv::Ptr<cv::cuda::ORB> orb_detector;
+        cv::Ptr<cv::cuda::ORB> feat_extractor;
     #else
-        cv::Ptr<cv::ORB> orb_detector;
+        cv::Ptr<cv::Feature2D> feat_extractor;
     #endif
 
     cv::Ptr<cv::DescriptorMatcher> matcher;
 
-    int grid_factor = 1;
+    double distance_ratio = 0.3;
 
     void featureExtract(const cv::Mat &img, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
     {
-        // Divide image into grids
-        int grid_width = img.cols / this->grid_factor;
-        int grid_height = img.rows / this->grid_factor;
-        int max_width = img.cols - (img.cols % grid_width);
-        int max_height = img.rows - (img.rows % grid_height);
+        #ifdef USE_CUDA
+            // Upload to gpu
+            cv::cuda::GpuMat cuda_img;
+            cuda_img.upload(img);
 
-        for (int i = 0; i < max_width; i += grid_width)
-        {
-            for (int j = 0; j < max_height; j += grid_height)
-            {
-                cv::Rect roi(i, j, grid_width, grid_height);
-                cv::Mat img_roi = img(roi);
+            cv::cuda::GpuMat cuda_keypoints, cuda_descriptors;
+            this->feat_extractor->detectAndComputeAsync(cuda_img, cv::cuda::GpuMat(), cuda_keypoints, cuda_descriptors);
 
-                std::vector<cv::KeyPoint> kp_roi;
-                cv::Mat desc_roi;
-
-                #ifdef USE_CUDA
-                    // Upload to gpu
-                    cv::cuda::GpuMat cuda_img;
-                    cuda_img.upload(img_roi);
-
-                    cv::cuda::GpuMat cuda_keypoints, cuda_descriptors;
-                    try
-                    {
-                        this->orb_detector->detectAndComputeAsync(cuda_img, cv::cuda::GpuMat(), cuda_keypoints, cuda_descriptors);
-                    }
-                    catch(const std::exception& e)
-                    {
-                        RCLCPP_ERROR_STREAM(this->get_logger(), "Error: " << e.what());
-                        continue;
-                    }
-                    
-                    // Download from gpu
-                    this->orb_detector->convert(cuda_keypoints, kp_roi);
-                    cuda_descriptors.download(desc_roi);
-                #else
-                    this->orb_detector->detectAndCompute(img_roi, cv::noArray(), kp_roi, desc_roi);
-                #endif
-
-                for (cv::KeyPoint &k : kp_roi)
-                {
-                    k.pt.x += j;
-                    k.pt.y += i;
-                    keypoints.push_back(k);
-                }
-
-                descriptors.push_back(desc_roi);
-            }
-        }
+            // Download from gpu
+            this->feat_extractor->convert(cuda_keypoints, keypoints);
+            cuda_descriptors.download(descriptors);
+        #else
+            this->feat_extractor->detectAndCompute(img, cv::noArray(), keypoints, descriptors);
+        #endif
     }
 
     void ratioTest(std::vector<std::vector<cv::DMatch> > &matches)
@@ -96,7 +61,7 @@ private:
         {
             if (matchIterator->size() > 1)
             {
-                if ((*matchIterator)[0].distance / (*matchIterator)[1].distance > 0.7)
+                if ((*matchIterator)[0].distance / (*matchIterator)[1].distance > this->distance_ratio)
                 {
                     matchIterator->clear(); 
                 }
@@ -140,8 +105,16 @@ private:
             return;
         }
 
-        this->matcher->knnMatch(prev_img_desc, curr_img_desc, matches_pc, 2);
-        this->matcher->knnMatch(curr_img_desc, prev_img_desc, matches_cp, 2);
+        try
+        {
+            this->matcher->knnMatch(prev_img_desc, curr_img_desc, matches_pc, 2);
+            this->matcher->knnMatch(curr_img_desc, prev_img_desc, matches_cp, 2);
+        }
+        catch(const std::exception& e)
+        {
+            RCLCPP_ERROR(this->get_logger(), "Feature matching failed: %s", e.what());
+            return;
+        }
 
         // Remove matches per Lewe's ratio test
         this->ratioTest(matches_pc);
@@ -199,26 +172,36 @@ public:
 
         // Parse parameters
         std::string feature_extractor_service = preset_config["feature_extractor_service"].as<std::string>();
-        this->grid_factor = main_config["feature_matcher"]["grid_factor"].as<int>();
+        this->distance_ratio = main_config["feature_matcher"]["distance_ratio"].as<double>();
+        std::string extractor = main_config["feature_matcher"]["extractor"].as<std::string>();
 
         // Initialize service
         this->feature_server = this->create_service<vio_msgs::srv::FeatureExtractor>(feature_extractor_service, 
             std::bind(&FeatureExtractorServer::feature_callback, this, std::placeholders::_1, std::placeholders::_2));
 
         // Initialize feature extractor
-        #ifdef USE_CUDA
-            this->orb_detector = cv::cuda::ORB::create();
-        #else
-            this->orb_detector = cv::ORB::create();
-        #endif
+        if (extractor == "orb")
+        {
+            #ifdef USE_CUDA
+                this->feat_extractor = cv::cuda::ORB::create();
+            #else
+                this->feat_extractor = cv::ORB::create();
+            #endif
 
-        // instantiate LSH index parameters
-        cv::Ptr<cv::flann::IndexParams> indexParams = cv::makePtr<cv::flann::LshIndexParams>(6, 12, 1); 
-        // instantiate flann search parameters
-        cv::Ptr<cv::flann::SearchParams> searchParams = cv::makePtr<cv::flann::SearchParams>(50); 
-
-        this->matcher = new cv::FlannBasedMatcher(indexParams, searchParams);
-        // this->matcher->train();
+            cv::Ptr<cv::flann::IndexParams> indexParams = cv::makePtr<cv::flann::LshIndexParams>(6, 12, 1); 
+            // instantiate flann search parameters
+            cv::Ptr<cv::flann::SearchParams> searchParams = cv::makePtr<cv::flann::SearchParams>(50); 
+            this->matcher = new cv::FlannBasedMatcher(indexParams, searchParams);
+        }
+        else if (extractor == "sift")
+        {
+            this->feat_extractor = cv::SIFT::create();
+            this->matcher = cv::BFMatcher::create(cv::NORM_L2, false);
+        }
+        else
+        {
+            RCLCPP_ERROR(this->get_logger(), "Invalid feature extractor: %s", extractor.c_str());
+        }
 
         RCLCPP_INFO(this->get_logger(), "Feature extractor server started.");
     }
