@@ -3,8 +3,6 @@ services:
     image: vri-ufpr/stereo-vo:latest
     container_name: stereo-vo
     privileged: true
-    ipc: host
-    network_mode: host
     volumes:
       - .:/workspace/
       - /tmp.X11-unix:/tmp/.X11-unix
@@ -12,8 +10,22 @@ services:
       - /tmp/argus_socket:/tmp/argus_socket
       - $HOME/.Xauthority:/root/.Xauthority:rw
     command: tail -f /dev/null # Keep container running
+    networks:
+      ros2-net:
+        ipv4_address: 10.9.0.4
 
   foxglove-bridge:
     image: foxglove/bridge:ros2
     container_name: foxglove-bridge
-    network_mode: host
+    ports:
+      - "8765:8765"
+    networks:
+      ros2-net:
+        ipv4_address: 10.9.0.5
+
+networks:
+  ros2-net:
+    name: ros2-net
+    ipam:
+      config:
+        - subnet: 10.9.0.0/24
