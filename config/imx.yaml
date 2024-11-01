@@ -6,6 +6,7 @@ markers: true
 bag: false
 
 bag_name: ""
+bag_rate: 1.0
 
 sensors:
   imu:

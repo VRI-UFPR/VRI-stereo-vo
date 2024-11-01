@@ -6,6 +6,7 @@ markers: true
 bag: true
 
 bag_name: "dataset_vri4wd_ufpr-map_20230830s001ab_ros2-bag"
+bag_rate: 1.0
 
 sensors:
   imu:

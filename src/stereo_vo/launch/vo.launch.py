@@ -37,6 +37,7 @@ def parse_config_file():
         # Bag arguments
         DeclareLaunchArgument(name="bag", default_value=bool2str(preset_config["bag"]), description="Play bag file"),
         DeclareLaunchArgument(name="bagfile", default_value=preset_config["bag_name"], description="Bag file name"),
+        DeclareLaunchArgument(name="pb_rate", default_value=str(preset_config["bag_rate"]), description="Playback rate"),
     ]
 
     return launch_args
@@ -102,7 +103,7 @@ def launch_setup(context):
         # Launch bag file
         ExecuteProcess(
             condition=IfCondition(LaunchConfiguration("bag")),
-            cmd=["ros2", "bag", "play", bag_path],
+            cmd=["ros2", "bag", "play", "-r", LaunchConfiguration("pb_rate"), bag_path],
             output="screen"
         )
     ]

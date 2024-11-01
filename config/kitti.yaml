@@ -6,6 +6,7 @@ markers: true
 bag: true
 
 bag_name: "kitti_data_odometry_gray_sequence_05-ros2_bag"
+bag_rate: 1.0
 
 sensors:
   imu:
@@ -24,7 +25,7 @@ im_size:
   width: 1226
   height: 370
 
-baseline: 0.537
+baseline: 0.5372
 
 undistort: false
 

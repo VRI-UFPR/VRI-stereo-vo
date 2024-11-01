@@ -6,6 +6,7 @@ markers: true
 bag: true
 
 bag_name: "MH_01_easy_ros2"
+bag_rate: 1.0
 
 sensors:
   imu:
