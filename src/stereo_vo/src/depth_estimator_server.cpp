@@ -28,6 +28,9 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_subscriber;
     std::deque<sensor_msgs::msg::Image> depth_buffer;
 
+    long total_depth_estimations = 0;
+    long total_depth_estimation_time = 0;
+
     void depth_callback(const std::shared_ptr<vio_msgs::srv::DepthEstimator::Request> request,
                         std::shared_ptr<vio_msgs::srv::DepthEstimator::Response> response)
     {
@@ -69,8 +72,10 @@ private:
         }
 
         auto estimation_end = std::chrono::high_resolution_clock::now();
-        RCLCPP_INFO(this->get_logger(), "Depth estimation time: %f ms", 
-            std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
+        long estimation_time = std::chrono::duration_cast<std::chrono::milliseconds>(estimation_end - estimation_start).count();
+        this->total_depth_estimations++;
+        this->total_depth_estimation_time += estimation_time;
+        RCLCPP_INFO(this->get_logger(), "Depth estimation time: %ld ms - Average: %f", estimation_time, (double)this->total_depth_estimation_time / this->total_depth_estimations);
     }
 
     void depth_sub_callback(const sensor_msgs::msg::Image::SharedPtr msg)

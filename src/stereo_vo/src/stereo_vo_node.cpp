@@ -40,7 +40,9 @@ private:
 
     double reprojection_threshold;
     std::vector<double> reproj_erros;
-    const size_t max_reproj_errors = 10;
+
+    long total_reprojection_errors = 0;
+    double total_reprojection_error = 0;
 
     // Camera intrinsics
     OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
@@ -76,6 +78,11 @@ private:
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometry_pub;
 
     std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> executor;
+
+    long total_motion_estimations = 0;
+    long total_motion_estimation_time = 0;
+    long total_pose_estimations = 0;
+    long total_pose_estimation_time = 0;
 
     void waitForService(rclcpp::ClientBase::SharedPtr client)
     {
@@ -241,7 +248,10 @@ private:
         }
         error /= pts_2d.size();
 
-        RCLCPP_INFO_STREAM(this->get_logger(), "Reprojection error: " << error);
+        this->total_reprojection_errors++;
+        this->total_reprojection_error += error;
+
+        RCLCPP_INFO_STREAM(this->get_logger(), "Reprojection error: " << error << " - Average: " << this->total_reprojection_error / this->total_reprojection_errors);
 
         if (error > this->reprojection_threshold)
         {
@@ -262,7 +272,9 @@ private:
         this->publishOdometry(this->curr_pose);
 
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
-        RCLCPP_INFO_STREAM(this->get_logger(), "Motion estimation time: " << duration.count() << "ms");
+        this->total_motion_estimations++;
+        this->total_motion_estimation_time += duration.count();
+        RCLCPP_INFO_STREAM(this->get_logger(), "Motion estimation time: " << duration.count() << "ms" << " - Average: " << (double)this->total_motion_estimation_time / this->total_motion_estimations);
     }
 
     void stereo_callback(const sensor_msgs::msg::Image::ConstSharedPtr &lcam_msg, const sensor_msgs::msg::Image::ConstSharedPtr &rcam_msg)
@@ -422,7 +434,9 @@ public:
             this->prev_depth_map = curr_depth_map;
 
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - pose_estimation_start);
-            RCLCPP_INFO_STREAM(this->get_logger(), "Total pose estimation time: " << duration.count() << "ms\n\n\n");
+            this->total_pose_estimations++;
+            this->total_pose_estimation_time += duration.count();
+            RCLCPP_INFO_STREAM(this->get_logger(), "Total pose estimation time: " << duration.count() << "ms - Average: " << (double)this->total_pose_estimation_time / this->total_pose_estimations << "ms\n\n\n");
         }
     }
 };

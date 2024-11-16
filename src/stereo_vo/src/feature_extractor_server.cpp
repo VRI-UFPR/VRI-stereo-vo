@@ -36,6 +36,9 @@ private:
 
     double distance_ratio = 0.3;
 
+    long total_feature_estimations = 0;
+    long total_feature_estimation_time = 0;
+
     void featureExtract(const cv::Mat &img, std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
     {
         #ifdef USE_CUDA
@@ -123,6 +126,8 @@ private:
         RCLCPP_INFO_STREAM(this->get_logger(), 
             "Received feature extraction request. Size: " 
             << request->curr_img.width << "x" << request->curr_img.height);
+        
+        auto total_start = std::chrono::high_resolution_clock::now();
         auto estimation_start = std::chrono::high_resolution_clock::now();
         
         // Convert data from request
@@ -143,9 +148,16 @@ private:
         std::vector<cv::DMatch> good_matches;
         this->featureMatch(curr_img_desc, prev_img_desc, good_matches);
 
+        auto toal_end = std::chrono::high_resolution_clock::now();
+        long duration = std::chrono::duration_cast<std::chrono::milliseconds>(toal_end - total_start).count();
+        this->total_feature_estimations++;
+        this->total_feature_estimation_time += duration;
+
         estimation_end = std::chrono::high_resolution_clock::now();
         RCLCPP_INFO(this->get_logger(), "Feature matching time: %f ms", 
             std::chrono::duration<double, std::milli>(estimation_end - estimation_start).count());
+        RCLCPP_INFO(this->get_logger(), "Total time: %ld ms - Average: %f", 
+            duration, (double)this->total_feature_estimation_time / this->total_feature_estimations);
 
         // Convert to ros message
         response->curr_img_desc = OpenCVConversions::toRosImage(curr_img_desc);
