@@ -8,8 +8,6 @@
     #include <opencv2/cudastereo.hpp>
 #endif
 
-#include "opencv_conversions.hpp"
-
 class DepthEstimator
 {
 private:
@@ -18,7 +16,9 @@ private:
     bool using_cuda = false;
     bool initialized = false;
     cv::Size img_size{0, 0};
-    OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
+
+    long total_estimations = 0;
+    long total_estimation_time = 0;
 
     void initStereoBM(const int ndisp, const int block_size);
     void initStereoSGBM(const int ndisp, const int block_size, const int sad_window);
@@ -28,10 +28,19 @@ private:
     void initConstantSpaceBP(const cv::Size im_size, const int ndisp, const int iter, const int levels, const int nr_plane);
 
 public:
-    DepthEstimator() {};
-    DepthEstimator(const YAML::Node &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file, cv::Size img_size);
 
-    cv::Mat compute(const cv::Mat &img_left, const cv::Mat &img_right);
+    struct DepthResponse 
+    {
+        cv::Mat disparity_map;
+
+        long estimation_time;
+        double average_time;
+    };
+
+    DepthEstimator() {};
+    DepthEstimator(const YAML::Node &config, cv::Size img_size);
+
+    std::shared_ptr<DepthResponse> compute(const cv::Mat &img_left, const cv::Mat &img_right);
 };
 
 void DepthEstimator::initStereoBM(const int ndisp, const int block_size)
@@ -135,7 +144,7 @@ void DepthEstimator::initConstantSpaceBP(const cv::Size im_size, const int ndisp
     #endif
 }
 
-DepthEstimator::DepthEstimator(const YAML::Node &config, const std::string lcam_intrinsics_file, const std::string rcam_intrinsics_file, cv::Size img_size)
+DepthEstimator::DepthEstimator(const YAML::Node &config, cv::Size img_size)
 {
     this->img_size = img_size;
 
@@ -146,9 +155,6 @@ DepthEstimator::DepthEstimator(const YAML::Node &config, const std::string lcam_
     int levels = config["levels"].as<int>();
     int nr_plane = config["nr_plane"].as<int>();
     int sad_window = config["sad_window"].as<int>();
-
-    this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
-    this->rcam_intrinsics = OpenCVConversions::CameraIntrinsics(rcam_intrinsics_file);
 
     std::cout << "[Depth Estimator] Using '" << algorithm << "'." << std::endl;
 
@@ -166,16 +172,21 @@ DepthEstimator::DepthEstimator(const YAML::Node &config, const std::string lcam_
         this->initConstantSpaceBP(img_size, ndisp, iter, levels, nr_plane);
 }
 
-cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_right)
+std::shared_ptr<DepthEstimator::DepthResponse> DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_right)
 {
+    auto estimation_start = std::chrono::high_resolution_clock::now();
+
+    std::shared_ptr<DepthResponse> response = std::make_shared<DepthResponse>();
+
     if (!this->initialized)
     {
         std::cerr << "[Depth Estimator] Using stereo matcher not initialized." << std::endl;
-        return cv::Mat(this->img_size, 0);
+        response->estimation_time = 0;
+        response->average_time = (double)this->total_estimation_time / this->total_estimations;
+        response->disparity_map = cv::Mat();
+        return response;
     }
 
-    cv::Mat disparity_map;
-    
     if (this->using_cuda)
     {
         #ifdef USE_CUDA
@@ -192,11 +203,17 @@ cv::Mat DepthEstimator::compute(const cv::Mat &img_left, const cv::Mat &img_righ
             disparity_map_gpu.download(disparity_map);
         #endif
     } else {
-        stereo_matcher->compute(img_left, img_right, disparity_map);
+        stereo_matcher->compute(img_left, img_right, response->disparity_map);
     }
 
     // Normalize
-    disparity_map.convertTo(disparity_map, CV_32F, 1.0/16.0);
+    response->disparity_map.convertTo(response->disparity_map, CV_32F, 1.0/16.0);
 
-    return disparity_map;
+    auto estimation_end = std::chrono::high_resolution_clock::now();
+    response->estimation_time = std::chrono::duration_cast<std::chrono::milliseconds>(estimation_end - estimation_start).count();
+    this->total_estimations++;
+    this->total_estimation_time += response->estimation_time;
+    response->average_time = (double)this->total_estimation_time / this->total_estimations;
+
+    return response;
 }

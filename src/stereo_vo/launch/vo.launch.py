@@ -17,11 +17,11 @@ def parse_config_file():
     
     # Load main config file
     with open(MAIN_CONFIG_PATH, 'r') as stream:
-        main_config = yaml.load(stream)
+        main_config = yaml.safe_load(stream)
 
     # Load preset config file
     with open(f"{CONFIGS_FOLDER}/{main_config['preset']}.yaml", 'r') as stream:
-        preset_config = yaml.load(stream)
+        preset_config = yaml.safe_load(stream)
         
     launch_args = [
 
@@ -67,18 +67,6 @@ def launch_setup(context):
             executable='stereo_vo_node',
             parameters=[{'config_file' : MAIN_CONFIG_PATH}],
         ),
-        Node(
-            package='stereo_vo',
-            condition=IfCondition(AndSubstitution(LaunchConfiguration("vo_enable"), LaunchConfiguration("estimate_depth"))),
-            executable='depth_estimator_server',
-            parameters=[{'config_file' : MAIN_CONFIG_PATH}],
-        ),
-        Node(
-            package='stereo_vo',
-            condition=IfCondition(LaunchConfiguration("vo_enable")),
-            executable='feature_extractor_server',
-            parameters=[{'config_file' : MAIN_CONFIG_PATH}],
-        ),
 
         # Launch visualization
         Node(
@@ -91,14 +79,8 @@ def launch_setup(context):
             package='tf2_ros',
             condition=IfCondition(LaunchConfiguration("enable_viz")),
             executable='static_transform_publisher',
-            arguments=['0', '0', '0', '1.57079633', '1.57079633', '0.0', 'camera', 'world'],
+            arguments=['--roll', '1.57079633', '--pitch', '1.57079633', '--yaw', '0.0', '--frame-id', 'camera', '--child-frame-id', 'world'],
         ),
-        # Node(
-        #     package='tf2_ros',
-        #     condition=IfCondition(LaunchConfiguration("enable_viz")),
-        #     executable='static_transform_publisher',
-        #     arguments=['0', '0', '0', '0', '0', '0', 'laser', 'world'],
-        # ),
 
         # Launch bag file
         ExecuteProcess(

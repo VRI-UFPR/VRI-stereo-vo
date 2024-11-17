@@ -2,11 +2,11 @@
 preset: "kitti"
 
 stereo_vo:
-  debug_visualization: false
+  debug_visualization: true
   reprojection_threshold: 15.0
-  buffer_size: 1000 # number of image pairs to keep in buffer, use 1 for strict real-time
+  buffer_size: 1 # number of image pairs to keep in buffer, use 1 for strict real-time
 
-depth_estimator_params:
+depth_estimator:
   depth_algorithm: "stereo_sgbm" # stereo_bm, stereo_sgbm, cuda_bm, cuda_sgm, belief_propagation, constant_space_bp
 
   # Algorithm specific parameters

@@ -42,22 +42,6 @@ install(TARGETS
   stereo_vo_node
   DESTINATION lib/${PROJECT_NAME})
 
-# Add depth_estimator_server
-add_executable(depth_estimator_server src/depth_estimator_server.cpp)
-ament_target_dependencies(depth_estimator_server rclcpp sensor_msgs vio_msgs OpenCV cv_bridge yaml-cpp)
-target_link_libraries(depth_estimator_server ${OpenCV_LIBS} yaml-cpp::yaml-cpp)
-install(TARGETS
-  depth_estimator_server
-  DESTINATION lib/${PROJECT_NAME})
-
-# Add feature_extractor_server
-add_executable(feature_extractor_server src/feature_extractor_server.cpp)
-ament_target_dependencies(feature_extractor_server rclcpp sensor_msgs vio_msgs OpenCV cv_bridge yaml-cpp)
-target_link_libraries(feature_extractor_server ${OpenCV_LIBS} yaml-cpp::yaml-cpp)
-install(TARGETS
-  feature_extractor_server
-  DESTINATION lib/${PROJECT_NAME})
-
 # Install Python modules
 ament_python_install_package(${PROJECT_NAME})
 

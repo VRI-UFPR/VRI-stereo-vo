@@ -5,7 +5,7 @@ depth: true
 markers: true
 bag: true
 
-bag_name: "kitti_data_odometry_gray_sequence_02-ros2_bag"
+bag_name: "kitti_data_odometry_gray_sequence_00-ros2_bag"
 bag_rate: 1.0
 
 sensors:
@@ -40,10 +40,6 @@ right_cam:
 vo_odom_topic: "/stereo_vo/odom"
 feature_viz: "/stereo_vo/feature_viz"
 depth_viz: "/stereo_vo/depth_viz"
-
-depth_estimation_service: "/stereo_vo/depth_estimation"
-
-feature_extractor_service: "/stereo_vo/feature_extraction"
 
 ground_truth: "/tf"
 ground_truth_msg_type: "transform"
