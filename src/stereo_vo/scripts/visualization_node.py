@@ -25,7 +25,7 @@ COLORS = [
     [1.0, 0.0, 1.0],
 ]
 
-SCALE = 0.3
+SCALE = 0.7
 
 class VisualizerNode(Node):
 
@@ -242,6 +242,12 @@ class VisualizerNode(Node):
         plt.plot(gt_pts[:, 0], gt_pts[:, 1], label="Ground Truth Path")
         plt.legend()
         plt.savefig(f"/workspace/Data/plots/{self.date_str}/paths.png")
+
+        # Print errors
+        self.get_logger().info(
+        f"""\n\n        Mean Horizontal Error: {np.mean(self.horizontal_error_pts)} 
+        Mean Vertical Error: {np.mean(self.vertical_error_pts)} 
+        Mean 3DoF Error: {np.mean(self.mean_tde_error_pts)}\n""")
 
 def main(args=None):
     rclpy.init(args=args)
