@@ -2,8 +2,9 @@
 preset: "kitti"
 
 stereo_vo:
-  debug_visualization: true
-  reprojection_threshold: 5.0
+  debug_visualization: false
+  reprojection_threshold: 15.0
+  buffer_size: 1000 # number of image pairs to keep in buffer, use 1 for strict real-time
 
 depth_estimator_params:
   depth_algorithm: "stereo_sgbm" # stereo_bm, stereo_sgbm, cuda_bm, cuda_sgm, belief_propagation, constant_space_bp
@@ -21,4 +22,4 @@ depth_estimator_params:
 feature_matcher:
   extractor: "sift" # orb, cuda_orb, sift
   matcher: "bf" # bf, flann
-  distance_ratio: 0.2
+  distance_ratio: 0.3

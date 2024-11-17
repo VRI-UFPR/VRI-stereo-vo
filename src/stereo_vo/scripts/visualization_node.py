@@ -6,6 +6,8 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
+from os import makedirs
+from os.path import exists
 
 from std_msgs.msg import Float32
 
@@ -91,7 +93,7 @@ class VisualizerNode(Node):
 
         # Error metrics
         self.last_estm = None
-        self.last_gt = None
+        self.last_gt = []
         self.total_he_error = 0.0
         self.total_tde_error = 0.0
         self.msg_num = 0
@@ -100,14 +102,14 @@ class VisualizerNode(Node):
 
         # Error publishers
         self.horizontal_error_pub = self.create_publisher(Float32, "/visualization/horizontal_error", 10)
+        self.vertical_error_pub = self.create_publisher(Float32, "/visualization/vertical_error", 10)
         self.three_dof_error_pub = self.create_publisher(Float32, "/visualization/tdof_error", 10)
-        self.mean_he_error_pub = self.create_publisher(Float32, "/visualization/mean_he_error", 10)
         self.mean_tde_pub = self.create_publisher(Float32, "/visualization/mean_3dof_error", 10)
         
         # Plot points
         self.horizontal_error_pts = []
         self.three_dof_error_pts = []
-        self.mean_he_error_pts = []
+        self.vertical_error_pts = []
         self.mean_tde_error_pts = []
         self.path_pts = []
         self.gt_pts = []
@@ -123,6 +125,9 @@ class VisualizerNode(Node):
 
         self.last_estm = np.array([msg.pose.pose.position.z, msg.pose.pose.position.x, msg.pose.pose.position.y])
         self.msg_num += 1
+
+        self.path_pts.append(self.last_estm[:2])
+
         self.publish_errors()
 
     def point_callback(self, msg, idx):
@@ -131,7 +136,8 @@ class VisualizerNode(Node):
         self.msgs[idx].header.frame_id = "world"
         self.msgs[idx].points.append(msg.point)
         self.gt_publisher.publish(self.msgs[idx])
-        self.last_gt = np.array([msg.point.x, msg.point.y, msg.point.z])
+        self.last_gt.append(np.array([msg.point.x, msg.point.y, msg.point.z]))
+        self.gt_pts.append(self.last_gt[-1][:2])
 
     def transform_callback(self, msg, idx):
         self.get_logger().info("Started publishing markers...", once=True)
@@ -143,27 +149,29 @@ class VisualizerNode(Node):
         tf_point.point.z = msg.transforms[0].transform.translation.z
         self.msgs[idx].points.append(tf_point.point)
         self.gt_publisher.publish(self.msgs[idx])
-        self.last_gt = np.array([tf_point.point.z, tf_point.point.x, tf_point.point.y])
+        self.last_gt.append(np.array([tf_point.point.z, tf_point.point.x, tf_point.point.y]))
+        self.gt_pts.append(self.last_gt[-1][:2])
         
     def publish_errors(self):
-        if self.last_gt is not None:
+        if len(self.last_gt) > 0:
+            curr_gt = self.last_gt.pop(0)
+
             msg = Float32()
             
             # Publish instantaneous horizontal error
-            horizontal_error = (np.linalg.norm(self.last_gt[:2] - self.last_estm[:2])) 
+            horizontal_error = (np.linalg.norm(curr_gt[:2] - self.last_estm[:2])) 
             msg.data = horizontal_error
             self.horizontal_error_pts.append(horizontal_error)
             self.horizontal_error_pub.publish(msg)
 
-            # Publish mean horizontal error
-            self.total_he_error += horizontal_error
-            mean_he_error = self.total_he_error / self.msg_num
-            msg.data = mean_he_error
-            self.mean_he_error_pts.append(mean_he_error)
-            self.mean_he_error_pub.publish(msg)
+            # Publish intaneous vertical error
+            vertical_error = (curr_gt[2] - self.last_estm[2])
+            msg.data = vertical_error
+            self.vertical_error_pts.append(vertical_error)
+            self.vertical_error_pub.publish(msg)
 
             # Publish instantaneous 3DoF error
-            mean_error = (np.linalg.norm(self.last_gt - self.last_estm)) 
+            mean_error = (np.linalg.norm(curr_gt - self.last_estm)) 
             msg.data = mean_error
             self.three_dof_error_pts.append(mean_error)
             self.three_dof_error_pub.publish(msg)
@@ -175,33 +183,31 @@ class VisualizerNode(Node):
             self.mean_tde_error_pts.append(mean_tde_error)
             self.mean_tde_pub.publish(msg)
 
-            self.path_pts.append(self.last_estm[:2])
-            self.gt_pts.append(self.last_gt[:2])
-
-            self.last_gt = None
-
             if self.msg_num % 30 == 0:
                 self.plot_erros()
 
     def plot_erros(self):
+
+        if not exists(f"/workspace/Data/plots/{self.date_str}"):
+            makedirs(f"/workspace/Data/plots/{self.date_str}")
     
         # Plot instantaneous errors
         plt.figure()
         plt.title("Instantaneous Errors (m)")
         plt.grid()
         plt.plot(self.horizontal_error_pts, label="Horizontal Error")
+        plt.plot(self.vertical_error_pts, label="Vertical Error")
         plt.plot(self.three_dof_error_pts, label="3DoF Error")
         plt.legend()
-        plt.savefig(f"/workspace/Data/plots/{self.date_str}_instantaneous_errors.png")
+        plt.savefig(f"/workspace/Data/plots/{self.date_str}/instantaneous_errors.png")
 
         # Plot mean errors
         plt.figure()
         plt.title("Mean Errors (m)")
         plt.grid()
-        plt.plot(self.mean_he_error_pts, label="Mean Horizontal Error")
         plt.plot(self.mean_tde_error_pts, label="Mean 3DoF Error")
         plt.legend()
-        plt.savefig(f"/workspace/Data/plots/{self.date_str}_mean_errors.png")
+        plt.savefig(f"/workspace/Data/plots/{self.date_str}/mean_errors.png")
 
         # Plot paths
         plt.figure()
@@ -212,7 +218,7 @@ class VisualizerNode(Node):
         plt.plot(path_pts[:, 0], path_pts[:, 1], label="Estimated Path")
         plt.plot(gt_pts[:, 0], gt_pts[:, 1], label="Ground Truth Path")
         plt.legend()
-        plt.savefig(f"/workspace/Data/plots/{self.date_str}_paths.png")
+        plt.savefig(f"/workspace/Data/plots/{self.date_str}/paths.png")
 
 def main(args=None):
     rclpy.init(args=args)

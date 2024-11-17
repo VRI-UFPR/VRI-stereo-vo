@@ -5,7 +5,7 @@ depth: true
 markers: true
 bag: true
 
-bag_name: "kitti_data_odometry_gray_sequence_05-ros2_bag"
+bag_name: "kitti_data_odometry_gray_sequence_02-ros2_bag"
 bag_rate: 1.0
 
 sensors:

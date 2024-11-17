@@ -38,6 +38,10 @@ private:
     std::vector<cv::DMatch> good_matches;
     Eigen::Matrix4d curr_pose = Eigen::Matrix4d::Identity();
 
+    // Image buffer
+    size_t buffer_size = 1;
+    std::deque<std::tuple<sensor_msgs::msg::Image, sensor_msgs::msg::Image>> image_buffer;
+
     double reprojection_threshold;
     std::vector<double> reproj_erros;
 
@@ -55,7 +59,7 @@ private:
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> cam_sync;
 
-    sensor_msgs::msg::Image next_limg, next_rimg;
+    // sensor_msgs::msg::Image next_limg, next_rimg;
 
     // Depth subscriber
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_subscriber;
@@ -279,8 +283,11 @@ private:
 
     void stereo_callback(const sensor_msgs::msg::Image::ConstSharedPtr &lcam_msg, const sensor_msgs::msg::Image::ConstSharedPtr &rcam_msg)
     {
-        this->next_limg = *lcam_msg;
-        this->next_rimg = *rcam_msg;
+        this->image_buffer.push_back(std::make_tuple(*lcam_msg, *rcam_msg));
+        if (this->image_buffer.size() > this->buffer_size)
+        {
+            this->image_buffer.pop_front();
+        }
     }   
 
     void publishFeatureMap(void)
@@ -330,6 +337,7 @@ public:
         YAML::Node stereo_vo_config = main_config["stereo_vo"];
         this->enable_viz = stereo_vo_config["debug_visualization"].as<bool>();
         this->reprojection_threshold = stereo_vo_config["reprojection_threshold"].as<double>();
+        this->buffer_size = stereo_vo_config["buffer_size"].as<size_t>();
 
         // Load camera intrinsics
         this->lcam_intrinsics = OpenCVConversions::CameraIntrinsics(lcam_intrinsics_file);
@@ -366,31 +374,40 @@ public:
         {
             this->executor->spin_some(std::chrono::milliseconds(300));
             
-            if (this->next_limg.header.stamp == rclcpp::Time(0))
+            // if (this->next_limg.header.stamp == rclcpp::Time(0))
+            // {
+            //     continue;
+            // }
+
+            if (this->image_buffer.size() < 1)
             {
                 continue;
             }
 
+            sensor_msgs::msg::Image next_limg = std::get<0>(this->image_buffer.front());
+            sensor_msgs::msg::Image next_rimg = std::get<1>(this->image_buffer.front());
+            this->image_buffer.pop_front();
+
             auto pose_estimation_start = std::chrono::high_resolution_clock::now();
 
-            rclcpp::Time curr_img_stamp = this->next_limg.header.stamp;
+            rclcpp::Time curr_img_stamp = next_limg.header.stamp;
 
             // Undistort images
             cv::Mat rect_limg;
             cv::Mat rect_rimg;
             if (this->undistort)
             {
-               rect_limg = this->lcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(this->next_limg));
-               rect_rimg = this->rcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(this->next_rimg));
+               rect_limg = this->lcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(next_limg));
+               rect_rimg = this->rcam_intrinsics.undistortImage(OpenCVConversions::toCvImage(next_rimg));
             } else {
-                rect_limg = OpenCVConversions::toCvImage(this->next_limg);
-                rect_rimg = OpenCVConversions::toCvImage(this->next_rimg);
+                rect_limg = OpenCVConversions::toCvImage(next_limg);
+                rect_rimg = OpenCVConversions::toCvImage(next_rimg);
             }
 
             // Update image variables
             this->prev_img = this->curr_img;
             this->curr_img = rect_limg;
-            this->next_limg.header.stamp = this->next_rimg.header.stamp = rclcpp::Time(0);
+            // this->next_limg.header.stamp = this->next_rimg.header.stamp = rclcpp::Time(0);
 
             // Send requests
             this->featureExtractionRequest(rect_limg);
