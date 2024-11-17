@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from cv_bridge import CvBridge
 
 import yaml
 import numpy as np
@@ -15,6 +16,7 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PointStamped
 from visualization_msgs.msg import Marker
 from tf2_msgs.msg import TFMessage
+from sensor_msgs.msg import Image
 
 COLORS = [
     [0.0, 1.0, 0.0],
@@ -52,6 +54,8 @@ class VisualizerNode(Node):
         visualization_topic = preset_config['vo_odom_topic']
         ground_truth = preset_config['ground_truth']
         ground_truth_msg_type = preset_config['ground_truth_msg_type']
+        depth_topic = preset_config['depth_viz']
+        self.gt_max_pts = main_config['stereo_vo']['buffer_size']
 
         # Initialize messages static parameters
         self.msgs = []
@@ -80,6 +84,8 @@ class VisualizerNode(Node):
 
         callback = lambda msg: self.estm_callback(msg, 0)
         self.estimation_subscriber = self.create_subscription(Odometry, visualization_topic, callback, 10)
+        self.depth_subscriber = self.create_subscription(Image, depth_topic, self.depth_callback, 10)
+        self.color_depth_pub = self.create_publisher(Image, "/visualization/depth_color", 10)
         self.estimation_publisher = self.create_publisher(Marker, f"/visualization{visualization_topic}", 10)
         self.get_logger().info(f"/visualization{visualization_topic}")
 
@@ -103,18 +109,40 @@ class VisualizerNode(Node):
         # Error publishers
         self.horizontal_error_pub = self.create_publisher(Float32, "/visualization/horizontal_error", 10)
         self.vertical_error_pub = self.create_publisher(Float32, "/visualization/vertical_error", 10)
-        self.three_dof_error_pub = self.create_publisher(Float32, "/visualization/tdof_error", 10)
         self.mean_tde_pub = self.create_publisher(Float32, "/visualization/mean_3dof_error", 10)
         
         # Plot points
         self.horizontal_error_pts = []
-        self.three_dof_error_pts = []
         self.vertical_error_pts = []
         self.mean_tde_error_pts = []
         self.path_pts = []
         self.gt_pts = []
 
+        self.cv_bridge = CvBridge()
+
         self.get_logger().info("Visualization node has been started.")
+
+    def depth_callback(self, msg):
+        depth_image = self.cv_bridge.imgmsg_to_cv2(msg)
+
+        fig, ax = plt.subplots(figsize=(10, 7))
+        ax.imshow(depth_image)
+        ax.axis("off")
+        fig.subplots_adjust(0, 0, 1, 1)
+
+        fig.canvas.draw()
+        image = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+        image = image.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+        plt.close(fig)
+
+        img_size = (depth_image.shape[0] - 75, depth_image.shape[1])
+        crop_start = (image.shape[0] - img_size[0]) // 2
+        crop_end = crop_start + img_size[0]
+        image = image[crop_start:crop_end, :, :]
+
+        color_depth_msg = self.cv_bridge.cv2_to_imgmsg(image, encoding="rgba8")
+        color_depth_msg.header = msg.header
+        self.color_depth_pub.publish(color_depth_msg)
 
     def estm_callback(self, msg, idx):
         self.get_logger().info("Started publishing markers...", once=True)
@@ -139,6 +167,9 @@ class VisualizerNode(Node):
         self.last_gt.append(np.array([msg.point.x, msg.point.y, msg.point.z]))
         self.gt_pts.append(self.last_gt[-1][:2])
 
+        if len(self.last_gt) > self.gt_max_pts:
+            self.last_gt.pop(0)
+
     def transform_callback(self, msg, idx):
         self.get_logger().info("Started publishing markers...", once=True)
         self.msgs[idx].header.stamp = self.get_clock().now().to_msg()
@@ -151,6 +182,9 @@ class VisualizerNode(Node):
         self.gt_publisher.publish(self.msgs[idx])
         self.last_gt.append(np.array([tf_point.point.z, tf_point.point.x, tf_point.point.y]))
         self.gt_pts.append(self.last_gt[-1][:2])
+
+        if len(self.last_gt) > self.gt_max_pts:
+            self.last_gt.pop(0)
         
     def publish_errors(self):
         if len(self.last_gt) > 0:
@@ -159,25 +193,19 @@ class VisualizerNode(Node):
             msg = Float32()
             
             # Publish instantaneous horizontal error
-            horizontal_error = (np.linalg.norm(curr_gt[:2] - self.last_estm[:2])) 
+            horizontal_error = abs(np.linalg.norm(curr_gt[:2] - self.last_estm[:2])) 
             msg.data = horizontal_error
             self.horizontal_error_pts.append(horizontal_error)
             self.horizontal_error_pub.publish(msg)
 
             # Publish intaneous vertical error
-            vertical_error = (curr_gt[2] - self.last_estm[2])
+            vertical_error = abs(curr_gt[2] - self.last_estm[2])
             msg.data = vertical_error
             self.vertical_error_pts.append(vertical_error)
             self.vertical_error_pub.publish(msg)
 
-            # Publish instantaneous 3DoF error
-            mean_error = (np.linalg.norm(curr_gt - self.last_estm)) 
-            msg.data = mean_error
-            self.three_dof_error_pts.append(mean_error)
-            self.three_dof_error_pub.publish(msg)
-
             # Publish mean 3DoF error
-            self.total_tde_error += mean_error
+            self.total_tde_error += np.linalg.norm(curr_gt - self.last_estm)
             mean_tde_error = self.total_tde_error / self.msg_num
             msg.data = mean_tde_error
             self.mean_tde_error_pts.append(mean_tde_error)
@@ -197,17 +225,12 @@ class VisualizerNode(Node):
         plt.grid()
         plt.plot(self.horizontal_error_pts, label="Horizontal Error")
         plt.plot(self.vertical_error_pts, label="Vertical Error")
-        plt.plot(self.three_dof_error_pts, label="3DoF Error")
-        plt.legend()
-        plt.savefig(f"/workspace/Data/plots/{self.date_str}/instantaneous_errors.png")
-
-        # Plot mean errors
-        plt.figure()
-        plt.title("Mean Errors (m)")
-        plt.grid()
         plt.plot(self.mean_tde_error_pts, label="Mean 3DoF Error")
+        plt.xlabel("Points")
+        plt.ylabel("Error (m)")
+
         plt.legend()
-        plt.savefig(f"/workspace/Data/plots/{self.date_str}/mean_errors.png")
+        plt.savefig(f"/workspace/Data/plots/{self.date_str}/errors.png")
 
         # Plot paths
         plt.figure()
