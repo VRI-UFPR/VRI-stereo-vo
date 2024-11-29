@@ -103,6 +103,7 @@ class VisualizerNode(Node):
         self.total_he_error = 0.0
         self.total_tde_error = 0.0
         self.msg_num = 0
+        self.track_len = 0
 
         self.date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -152,7 +153,6 @@ class VisualizerNode(Node):
         self.estimation_publisher.publish(self.msgs[idx])
 
         self.last_estm = np.array([msg.pose.pose.position.z, msg.pose.pose.position.x, msg.pose.pose.position.y])
-        self.msg_num += 1
 
         self.path_pts.append(self.last_estm[:2])
 
@@ -166,6 +166,10 @@ class VisualizerNode(Node):
         self.gt_publisher.publish(self.msgs[idx])
         self.last_gt.append(np.array([msg.point.x, msg.point.y, msg.point.z]))
         self.gt_pts.append(self.last_gt[-1][:2])
+
+        # calculate track length
+        if len(self.last_gt) > 1:
+            self.track_len += np.linalg.norm(self.last_gt[-1] - self.last_gt[-2])
 
         if len(self.last_gt) > self.gt_max_pts:
             self.last_gt.pop(0)
@@ -182,6 +186,10 @@ class VisualizerNode(Node):
         self.gt_publisher.publish(self.msgs[idx])
         self.last_gt.append(np.array([tf_point.point.z, tf_point.point.x, tf_point.point.y]))
         self.gt_pts.append(self.last_gt[-1][:2])
+
+        # calculate track length
+        if len(self.last_gt) > 1:
+            self.track_len += np.linalg.norm(self.last_gt[-1] - self.last_gt[-2])
 
         if len(self.last_gt) > self.gt_max_pts:
             self.last_gt.pop(0)
@@ -206,12 +214,13 @@ class VisualizerNode(Node):
 
             # Publish mean 3DoF error
             self.total_tde_error += np.linalg.norm(curr_gt - self.last_estm)
+            self.msg_num += 1
             mean_tde_error = self.total_tde_error / self.msg_num
             msg.data = mean_tde_error
             self.mean_tde_error_pts.append(mean_tde_error)
             self.mean_tde_pub.publish(msg)
 
-            if self.msg_num % 30 == 0:
+            if self.msg_num % 15 == 0:
                 self.plot_erros()
 
     def plot_erros(self):
@@ -221,10 +230,10 @@ class VisualizerNode(Node):
     
         # Plot instantaneous errors
         plt.figure()
-        plt.title("Instantaneous Errors (m)")
+        plt.title("Error (m)")
         plt.grid()
-        plt.plot(self.horizontal_error_pts, label="Horizontal Error")
-        plt.plot(self.vertical_error_pts, label="Vertical Error")
+        plt.plot(self.horizontal_error_pts, label="Inst. Horizontal Error")
+        plt.plot(self.vertical_error_pts, label="Inst. Vertical Error")
         plt.plot(self.mean_tde_error_pts, label="Mean 3DoF Error")
         plt.xlabel("Points")
         plt.ylabel("Error (m)")
@@ -247,7 +256,11 @@ class VisualizerNode(Node):
         self.get_logger().info(
         f"""\n\n        Mean Horizontal Error: {np.mean(self.horizontal_error_pts)} 
         Mean Vertical Error: {np.mean(self.vertical_error_pts)} 
-        Mean 3DoF Error: {np.mean(self.mean_tde_error_pts)}\n""")
+        Mean 3DoF Error: {self.mean_tde_error_pts[-1]}
+        Track Length: {self.track_len}
+        """)
+
+        plt.close("all")
 
 def main(args=None):
     rclpy.init(args=args)

@@ -87,7 +87,13 @@ def launch_setup(context):
             condition=IfCondition(LaunchConfiguration("bag")),
             cmd=["ros2", "bag", "play", "-r", LaunchConfiguration("pb_rate"), bag_path],
             output="screen"
-        )
+        ),
+
+        # ExecuteProcess(
+        #   condition=IfCondition(LaunchConfiguration("enable_viz")),
+        #    cmd=["ros2", "bag", "record", "-a"],
+        #    output="screen"
+        # ),
     ]
 
 def generate_launch_description():

@@ -44,4 +44,4 @@ depth_viz: "/stereo_vo/depth_viz"
 ground_truth: "/tf"
 ground_truth_msg_type: "transform"
 
-odom_scale: [-10.0, 10.0, 10.0]
+odom_scale: [10.0, 0.0, 10.0]

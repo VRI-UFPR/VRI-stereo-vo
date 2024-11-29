@@ -1,6 +1,0 @@
-sensor_msgs/Image curr_img
-sensor_msgs/Image prev_img_desc
----
-sensor_msgs/Image curr_img_desc
-vio_msgs/KeyPoints curr_img_kps
-vio_msgs/DMatches good_matches

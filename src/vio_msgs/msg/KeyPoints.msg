@@ -1,7 +1,0 @@
-std_msgs/Float64MultiArray angle
-std_msgs/Int32MultiArray class_id
-std_msgs/Int32MultiArray octave
-std_msgs/Int32MultiArray pt_x
-std_msgs/Int32MultiArray pt_y
-std_msgs/Float64MultiArray response
-std_msgs/Float64MultiArray size

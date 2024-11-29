@@ -3,6 +3,8 @@
 #include <deque>
 #include <tuple>
 #include <future>
+#include <set>
+#include <fstream>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp/executors/single_threaded_executor.hpp"
@@ -11,6 +13,7 @@
 #include "message_filters/sync_policies/approximate_time.h"
 
 #include "sensor_msgs/msg/image.hpp"
+#include "sensor_msgs/msg/camera_info.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 
 #include "opencv_conversions.hpp"
@@ -46,13 +49,14 @@ private:
 
     // Image buffer
     size_t buffer_size = 1;
-    std::deque<std::tuple<sensor_msgs::msg::Image, sensor_msgs::msg::Image>> image_buffer;
+    std::deque<std::tuple<int, sensor_msgs::msg::Image, sensor_msgs::msg::Image>> image_buffer;
 
     // Reprojection error
     double reprojection_threshold;
     std::vector<double> reproj_erros;
     long total_reprojection_errors = 0;
     double total_reprojection_error = 0;
+    std::set<double> reprojection_errors;
 
     // Camera intrinsics
     OpenCVConversions::CameraIntrinsics lcam_intrinsics, rcam_intrinsics;
@@ -65,6 +69,8 @@ private:
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
     std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> cam_sync;
 
+    int last_pose_id = -1;
+
     // Visualization publishers
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr feature_map_pub;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_map_pub;
@@ -74,6 +80,9 @@ private:
 
     // Pose publisher
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometry_pub;
+
+    // Output file for kitti dataset
+    std::ofstream kitti_file;
 
     std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> executor;
 
@@ -93,18 +102,18 @@ private:
         }
     }
 
-    void publishOdometry(const Eigen::Matrix4d &pose)
+    void publishOdometry(const Eigen::Matrix4d &pose, int pose_id)
     {
         nav_msgs::msg::Odometry odometry_msg;
         odometry_msg.header.stamp = this->now();
 
-        Eigen::Vector3d position = (pose * Eigen::Vector4d(0, 0, 0, 1)).head(3);
+        this->kitti_file << pose_id<< " " << pose(0, 0) << " " << pose(0, 1) << " " << pose(0, 2) << " " << pose(0, 3) << " " << pose(1, 0) << " " << pose(1, 1) << " " << pose(1, 2) << " " << pose(1, 3) << " " << pose(2, 0) << " " << pose(2, 1) << " " << pose(2, 2) << " " << pose(2, 3) << std::endl;
 
-        RCLCPP_INFO_STREAM(this->get_logger(), "Current position: " << position.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", " ", "[", "]")));
+        RCLCPP_INFO_STREAM(this->get_logger(), "Current position: " << pose(0, 3) << " " << pose(1, 3) << " " << pose(2, 3));
 
-        odometry_msg.pose.pose.position.x = position.x() * this->odom_scale[0];
-        odometry_msg.pose.pose.position.y = position.y() * this->odom_scale[1];
-        odometry_msg.pose.pose.position.z = position.z() * this->odom_scale[2];
+        odometry_msg.pose.pose.position.x = pose(0, 3) * this->odom_scale[0];
+        odometry_msg.pose.pose.position.y = pose(1, 3) * this->odom_scale[1];
+        odometry_msg.pose.pose.position.z = pose(2, 3) * this->odom_scale[2];
 
         Eigen::Quaterniond q(pose.block<3, 3>(0, 0));
         odometry_msg.pose.pose.orientation.x = q.x();
@@ -115,7 +124,7 @@ private:
         this->odometry_pub->publish(odometry_msg);
     }
 
-    void motionEstimation(void)
+    bool motionEstimation(int pose_id)
     {
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -135,7 +144,7 @@ private:
             cv::Point2d p = this->prev_img_kps[m.queryIdx].pt;
             // Needs to use uchar because depth map is mono8 image
             double z = static_cast<double>(this->prev_depth_map.at<uchar>(p.y, p.x));
-            if ((z == 0.0) || (z == -1.0))
+            if (z <= 0)
             {
                 continue;
             }
@@ -155,27 +164,30 @@ private:
         if (pts_3d.size() < 6)
         {
             RCLCPP_WARN(this->get_logger(), "Insufficient points for PnP estimation.");
-            return;
+            return false;
         }
 
         RCLCPP_INFO(this->get_logger(), "Estimating motion. Points: %ld", pts_3d.size());
-        cv::Mat rvec, tvec, R;        
-        try {
-            cv::solvePnPRansac(pts_3d, pts_2d, this->lcam_intrinsics.cameraMatrix(), this->lcam_intrinsics.distCoeffs(), rvec, tvec, false, 100, 8.0, 0.99, cv::noArray(), cv::SOLVEPNP_AP3P);
-        } catch (cv::Exception &e) {
-            RCLCPP_ERROR(this->get_logger(), "PnP failed: %s", e.what());
-            return;
+        cv::Mat rvec, tvec, R;
+        bool estm_intrinsic = false;
+        int mode = cv::SOLVEPNP_AP3P;
+        for (int i = 0; i < 1; i++)
+        {
+            try {
+                cv::solvePnPRansac(pts_3d, pts_2d, this->lcam_intrinsics.cameraMatrix(), this->lcam_intrinsics.distCoeffs(), rvec, tvec, estm_intrinsic, 200, 5.0, 0.99, cv::noArray(), mode);
+            } catch (cv::Exception &e) {
+                RCLCPP_ERROR(this->get_logger(), "PnP failed: %s", e.what());
+                return false;
+            }
+
+            if (!estm_intrinsic)
+            {
+                estm_intrinsic = true;
+                mode = cv::SOLVEPNP_ITERATIVE;
+            }
         }
+
         cv::Rodrigues(rvec, R);
-
-        // Convert to Transformation matrix
-        Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
-        T.block<3, 3>(0, 0) = Eigen::Map<Eigen::Matrix3d>(R.ptr<double>());
-        T(0, 3) = tvec.at<double>(0);
-        T(1, 3) = tvec.at<double>(1);
-        T(2, 3) = tvec.at<double>(2);
-
-        RCLCPP_INFO_STREAM(this->get_logger(), "Estimated transformation: " << std::endl << T.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
 
         // Filter usign reprojection error
         std::vector<cv::Point2d> projected_pts;
@@ -189,45 +201,65 @@ private:
         }
         error /= pts_2d.size();
 
+        RCLCPP_INFO_STREAM(this->get_logger(), "Reprojection error: " << error);
         this->total_reprojection_errors++;
         this->total_reprojection_error += error;
+        this->reprojection_errors.insert(error);
+        std::set<double>::iterator it = this->reprojection_errors.begin();
+        std::advance(it, this->reprojection_errors.size() / 2);
+        double median = *it;
 
-        RCLCPP_INFO_STREAM(this->get_logger(), "Reprojection error: " << error << " - Average: " << this->total_reprojection_error / this->total_reprojection_errors);
+        // Convert to Transformation matrix
+        Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+        T.block<3, 3>(0, 0) = Eigen::Map<Eigen::Matrix3d>(R.ptr<double>());
+        T(0, 3) = tvec.at<double>(0);
+        T(1, 3) = tvec.at<double>(1);
+        T(2, 3) = tvec.at<double>(2);
+
+        RCLCPP_INFO_STREAM(this->get_logger(), "Estimated transformation: " << std::endl << T.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]")));
+
+        RCLCPP_INFO_STREAM(this->get_logger(), "Reprojection error: " << error << " - Average: " << this->total_reprojection_error / this->total_reprojection_errors << " - Median: " << median);  
 
         if (error > this->reprojection_threshold)
         {
             RCLCPP_WARN(this->get_logger(), "Motion rejected due to high reprojection error.");
-            return;
+            return false;
         }
 
         // Only accept pose if dominant motion is foward
-        if ((T(2, 3) > 0) || (abs(T(2, 3)) < abs(T(0, 3))) || (abs(T(2, 3)) < abs(T(1, 3))))
-        {
-            // RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
-            // return;
-        }
+        // if ((T(2, 3) > 0) || (abs(T(2, 3)) < abs(T(0, 3))) || (abs(T(2, 3)) < abs(T(1, 3))))
+        // {
+        //     // RCLCPP_WARN(this->get_logger(), "Motion rejected.");        
+        //     // return;
+        // }
 
         // Update pose and publish odometry
         this->curr_pose *= T.inverse();
 
-        this->publishOdometry(this->curr_pose);
+        Eigen::Matrix4d pose_rh = this->curr_pose;
+
+        // Correct for right-handed coordinate system
+        pose_rh(0, 1) = -pose_rh(0, 1);
+        pose_rh(0, 2) = -pose_rh(0, 2);
+        pose_rh(0, 3) = -pose_rh(0, 3);
+        pose_rh(1, 0) = -pose_rh(1, 0);
+        pose_rh(2, 0) = -pose_rh(2, 0);
+
+        this->publishOdometry(pose_rh, pose_id);
 
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
         this->total_motion_estimations++;
         this->total_motion_estimation_time += duration.count();
         RCLCPP_INFO_STREAM(this->get_logger(), "Motion estimation time: " << duration.count() << "ms" << " - Average: " << (double)this->total_motion_estimation_time / this->total_motion_estimations);
-    }
 
+        return true;
+    }
+    
     void stereo_callback(const sensor_msgs::msg::Image::ConstSharedPtr &lcam_msg, const sensor_msgs::msg::Image::ConstSharedPtr &rcam_msg)
     {
-        // Skip every other frame
-        if (this->skip_frame)
-        {
-            this->skip_frame = false;
-            // return;
-        }
+        this->last_pose_id++;
 
-        this->image_buffer.push_back(std::make_tuple(*lcam_msg, *rcam_msg));
+        this->image_buffer.push_back(std::make_tuple(this->last_pose_id, *lcam_msg, *rcam_msg));
         if (this->image_buffer.size() > this->buffer_size)
         {
             this->image_buffer.pop_front();
@@ -291,7 +323,7 @@ public:
         this->lcam_sub.subscribe(this, lcam_topic);
         this->rcam_sub.subscribe(this, rcam_topic);        
         this->cam_sync = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(10), lcam_sub, rcam_sub);
-        this->cam_sync->setMaxIntervalDuration(rclcpp::Duration::from_seconds(0.025));
+        this->cam_sync->setMaxIntervalDuration(rclcpp::Duration::from_seconds(0.3));
         this->cam_sync->registerCallback(std::bind(&StereoVONode::stereo_callback, this, std::placeholders::_1, std::placeholders::_2));
 
         // Initialize services
@@ -308,7 +340,20 @@ public:
         }
         this->odometry_pub = this->create_publisher<nav_msgs::msg::Odometry>(odometry_topic, 10);
 
+        // Initialize output file
+        std::string output_file = "/workspace/Data/kitti_odom.txt";
+        this->kitti_file.open(output_file);
+        if (!this->kitti_file.is_open())
+        {
+            RCLCPP_ERROR(this->get_logger(), "Failed to open output file: %s", output_file.c_str());
+        }
+
         RCLCPP_INFO(this->get_logger(), "Stereo visual odometry node started.");
+    }
+
+    ~StereoVONode(void)
+    {
+        this->kitti_file.close();
     }
 
     void run(void)
@@ -325,8 +370,9 @@ public:
                 continue;
             }
 
-            sensor_msgs::msg::Image next_limg = std::get<0>(this->image_buffer.front());
-            sensor_msgs::msg::Image next_rimg = std::get<1>(this->image_buffer.front());
+            int curr_id = std::get<0>(this->image_buffer.front());
+            sensor_msgs::msg::Image next_limg = std::get<1>(this->image_buffer.front());
+            sensor_msgs::msg::Image next_rimg = std::get<2>(this->image_buffer.front());
             this->image_buffer.pop_front();
 
             auto pose_estimation_start = std::chrono::high_resolution_clock::now();
@@ -358,9 +404,12 @@ public:
             });
             RCLCPP_INFO(this->get_logger(), "Feature and depth estimation requests sent.");
 
-            // Wait for both responses
-            depth_future.wait();
-            feature_future.wait();
+            // Spin while waiting for both responses
+            while (depth_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready || feature_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+            {
+                this->executor->spin_some(std::chrono::milliseconds(10));
+            }
+
             RCLCPP_INFO(this->get_logger(), "Feature and depth estimation completed.");
 
             std::shared_ptr<DepthEstimator::DepthResponse> depth_response = depth_future.get();
@@ -387,8 +436,8 @@ public:
                 }
             }
 
-            this->motionEstimation();
-
+            this->motionEstimation(curr_id);
+        
             this->prev_img_desc = curr_img_desc;
             this->prev_img_kps = curr_img_kps;
             this->prev_depth_map = curr_depth_map;

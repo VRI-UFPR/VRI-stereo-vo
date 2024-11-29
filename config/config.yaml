@@ -3,7 +3,7 @@ preset: "kitti"
 
 stereo_vo:
   debug_visualization: true
-  reprojection_threshold: 15.0
+  reprojection_threshold: 50.0
   buffer_size: 1 # number of image pairs to keep in buffer, use 1 for strict real-time
 
 depth_estimator:
